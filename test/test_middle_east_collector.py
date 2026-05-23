@@ -2,9 +2,9 @@ import json
 
 import httpx
 
-from airs.mini_agents.middle_east_collector import (
+from airs.mini_agents.base_collector import (
     CollectionRequest,
-    MiddleEastCollector,
+    LLMCurator,
     OpenAILLMCurator,
     SearchCandidate,
     StaticSearchProvider,
@@ -13,6 +13,7 @@ from airs.mini_agents.middle_east_collector import (
     load_tavily_config,
     TavilySearchProvider,
 )
+from airs.mini_agents.middle_east_collector import MiddleEastCollector
 
 
 def make_curator(decisions):
