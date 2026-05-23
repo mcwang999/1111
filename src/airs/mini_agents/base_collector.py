@@ -28,12 +28,12 @@ VERTICAL_LABELS = {
 }
 
 TOPIC_LABELS = {
-    "competition": "competitor moves",
-    "product": "product trends",
-    "platform": "platform channels",
-    "social": "social media trends",
-    "regulation": "regulation",
-    "macro_gold": "gold price macro dynamics",
+    "competition": "competitor and market player moves",
+    "product": "product, design, assortment, and consumer preference changes",
+    "platform": "sales channels, retail formats, malls, ecommerce, and platforms",
+    "social": "social media, community, and consumer conversation signals",
+    "regulation": "laws, policy, tax, compliance, labeling, and trade rules",
+    "macro_gold": "gold price, macro economy, currency, and financial market dynamics",
     "other": "other",
 }
 
@@ -47,7 +47,22 @@ TOPIC_QUERY_HINTS = {
     "other": ["industry news", "market update"],
 }
 
+IMPACT_TAG_LABELS = {
+    "supply_chain": "raw materials, sourcing, manufacturing, logistics, inventory, or delivery",
+    "compliance": "legal, tax, customs, certification, disclosure, or operating compliance",
+    "cost": "procurement cost, landed cost, operating cost, or margin pressure",
+    "pricing": "retail pricing, price transparency, discounting, or affordability",
+    "inventory": "stock availability, replenishment, allocation, or inventory strategy",
+    "logistics": "shipping, freight, ports, customs clearance, or transport delay",
+    "sourcing": "supplier, origin, mining, refinery, ESG, or traceability exposure",
+    "retail_operations": "store operations, channel execution, staff, service, or customer experience",
+    "consumer_demand": "purchase intent, demand, traffic, conversion, or consumer preference",
+    "brand_reputation": "brand trust, reputation, sentiment, PR, or competitor perception",
+    "financial_market": "gold price, FX, rates, liquidity, or investor behavior",
+}
+
 ALLOWED_TOPICS = set(TOPIC_LABELS)
+ALLOWED_IMPACT_TAGS = set(IMPACT_TAG_LABELS)
 ALLOWED_STRATEGIC_VERTICALS = set(VERTICAL_LABELS) | {"other"}
 
 JEWELLERY_RELEVANCE_TERMS = {
@@ -99,6 +114,7 @@ class CuratedCandidate:
     event_key: str | None = None
     relevance_score: float = 0.0
     topic: str | None = None
+    impact_tags: list[str] = field(default_factory=list)
     strategic_vertical: str | None = None
 
 
@@ -181,6 +197,15 @@ class OpenAILLMCurator:
         try:
             resp_json = response.json()
             content = resp_json["choices"][0]["message"]["content"]
+            # Strip markdown code block wrapping if present (```json ... ```)
+            content = content.strip()
+            if content.startswith("```"):
+                # Remove opening ```json or ```
+                first_newline = content.index("\n") if "\n" in content else len(content)
+                content = content[first_newline + 1:]
+                # Remove closing ```
+                if content.endswith("```"):
+                    content = content[:-3].strip()
             data = json.loads(content)
             return self.parse_decisions(data, candidates)
         except (KeyError, IndexError, json.JSONDecodeError) as exc:
@@ -200,6 +225,7 @@ class OpenAILLMCurator:
                 event_key=None,
                 relevance_score=0.5,
                 topic=None,
+                impact_tags=[],
                 strategic_vertical=None,
             )
             for i in range(len(candidates))
@@ -238,6 +264,19 @@ class OpenAILLMCurator:
                         "reason": "short evidence-based reason",
                         "event_key": "concise human-readable event summary or null",
                         "topic": "competition|product|platform|social|regulation|macro_gold|other",
+                        "impact_tags": [
+                            "supply_chain",
+                            "compliance",
+                            "cost",
+                            "pricing",
+                            "inventory",
+                            "logistics",
+                            "sourcing",
+                            "retail_operations",
+                            "consumer_demand",
+                            "brand_reputation",
+                            "financial_market",
+                        ],
                         "strategic_vertical": (
                             "gold_jewellery|jade_colored_gems_cultural_jewellery|"
                             "overseas_retail_channels|other"
@@ -264,6 +303,11 @@ class OpenAILLMCurator:
             relevance_score = float(item.get("relevance_score", 0.0))
             topic = item.get("topic")
             strategic_vertical = item.get("strategic_vertical")
+            impact_tags = [
+                tag
+                for tag in item.get("impact_tags", [])
+                if tag in ALLOWED_IMPACT_TAGS
+            ]
             # Map unknown topic/vertical to "other" instead of discarding
             if topic not in ALLOWED_TOPICS:
                 topic = "other"
@@ -278,6 +322,7 @@ class OpenAILLMCurator:
                     event_key=item.get("event_key"),
                     relevance_score=max(0.0, min(1.0, relevance_score)),
                     topic=topic,
+                    impact_tags=impact_tags,
                     strategic_vertical=strategic_vertical,
                 )
             )
@@ -584,10 +629,17 @@ class BaseCollector:
     def __init__(
         self,
         search_provider: SearchProvider | None = None,
+        search_providers: dict[str, SearchProvider] | None = None,
         curator: LLMCurator | None = None,
         supabase_writer: SupabaseWriter | None = None,
     ) -> None:
-        self.search_provider = search_provider
+        # Support both single provider (backward compat) and multi-provider dict
+        if search_providers is not None:
+            self.search_providers = search_providers
+        elif search_provider is not None:
+            self.search_providers = {"news": search_provider}
+        else:
+            self.search_providers = {}
         self.curator = curator
         self.supabase_writer = supabase_writer
 
@@ -595,12 +647,20 @@ class BaseCollector:
         queries = self.build_queries(request)
 
         all_candidates: list[SearchCandidate] = []
-        if self.search_provider is not None:
+        # Determine which source types to search
+        source_types = request.source_types if request.source_types else ["news"]
+        for source_type in source_types:
+            provider = self.search_providers.get(source_type)
+            if provider is None:
+                # Fallback: try "news" provider for unknown source types
+                provider = self.search_providers.get("news")
+            if provider is None:
+                continue
             for query in queries:
                 all_candidates.extend(
-                    self.search_provider.search(
+                    provider.search(
                         query=query,
-                        source_type=request.source_types[0] if request.source_types else "news",
+                        source_type=source_type,
                         time_window=request.time_window,
                     )
                 )
@@ -633,6 +693,7 @@ class BaseCollector:
                             event_key=event_key,
                             relevance_score=0.5,
                             topic=None,
+                            impact_tags=[],
                             strategic_vertical=None,
                         ),
                     )
@@ -654,6 +715,7 @@ class BaseCollector:
 
         for event_key, cluster in clusters.items():
             cluster_source_ids: list[str] = []
+            impact_tags = self.merge_impact_tags(cluster)
             for candidate, decision in cluster:
                 source_id = self.new_doc_id()
                 cluster_source_ids.append(source_id)
@@ -670,6 +732,7 @@ class BaseCollector:
                         "metadata": {
                             "region": self.REGION,
                             "topic": topic,
+                            "impact_tags": decision.impact_tags,
                             "strategic_vertical": strategic_vertical,
                             "event_key": event_key,
                             "topic_source": "llm_selected" if decision.topic else "request_fallback",
@@ -702,6 +765,7 @@ class BaseCollector:
                     "metadata": {
                         "region": self.REGION,
                         "topic": topic,
+                        "impact_tags": impact_tags,
                         "strategic_vertical": strategic_vertical,
                         "event_key": event_key,
                         "topic_source": (
@@ -727,14 +791,17 @@ class BaseCollector:
         persisted = False
         if self.supabase_writer is not None:
             all_docs = raw_sources + intel_cards
-            try:
-                self.supabase_writer.write_documents(all_docs)
-                persisted = True
-            except Exception as exc:
-                print(f"[{self.AGENT_NAME}] Supabase write_documents failed: {exc}")
+            if all_docs:
+                try:
+                    self.supabase_writer.write_documents(all_docs)
+                    persisted = True
+                except Exception as exc:
+                    print(f"[{self.AGENT_NAME}] Supabase write_documents failed: {exc}")
+            else:
+                print(f"[{self.AGENT_NAME}] No documents to persist (search returned empty)")
 
-            run_status = "completed" if persisted else "partial"
-            error_msg = None if persisted else "Supabase write_documents failed"
+            run_status = "completed" if persisted else "empty" if not all_docs else "partial"
+            error_msg = None if persisted else ("no data" if not all_docs else "Supabase write_documents failed")
             try:
                 self.supabase_writer.write_agent_run(
                     agent_name=self.AGENT_NAME,
@@ -782,8 +849,15 @@ class BaseCollector:
             f"Search focus: {request.query_focus}.\n\n"
             f"{self.RELEVANCE_PROMPT}\n\n"
             "Allowed topic values: competition, product, platform, social, regulation, macro_gold, other.\n"
+            "Allowed impact_tags values: supply_chain, compliance, cost, pricing, inventory, "
+            "logistics, sourcing, retail_operations, consumer_demand, brand_reputation, "
+            "financial_market.\n"
             "Allowed strategic_vertical values: gold_jewellery, "
             "jade_colored_gems_cultural_jewellery, overseas_retail_channels, other.\n"
+            "topic is a single primary intelligence category: what kind of jewellery market "
+            "change this item mainly describes.\n"
+            "impact_tags are multi-select business impact labels: which business areas or "
+            "briefing audiences may care about this item.\n"
             "For each kept candidate, choose exactly one allowed topic and exactly one allowed "
             "strategic_vertical. Use 'other' when none of the predefined categories fit well. "
             "Use the requested topic/vertical only when it is still the best fit.\n"
@@ -886,6 +960,18 @@ class BaseCollector:
                 }
             )
         return discarded
+
+    @staticmethod
+    def merge_impact_tags(
+        cluster: list[tuple[SearchCandidate, CuratedCandidate]]
+    ) -> list[str]:
+        tags = {
+            tag
+            for _, decision in cluster
+            for tag in decision.impact_tags
+            if tag in ALLOWED_IMPACT_TAGS
+        }
+        return sorted(tags)
 
     def is_relevant_candidate(self, candidate: SearchCandidate) -> bool:
         text = f"{candidate.title} {candidate.snippet}".lower()

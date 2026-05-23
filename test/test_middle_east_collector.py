@@ -66,6 +66,7 @@ def test_middle_east_collector_collects_and_deduplicates_events():
                 "reason": "Middle East jewellery retail expansion signal.",
                 "event_key": "Pandora Dubai flagship store expansion",
                 "topic": "competition",
+                "impact_tags": ["retail_operations", "brand_reputation"],
                 "strategic_vertical": "overseas_retail_channels",
                 "relevance_score": 0.86,
             },
@@ -75,6 +76,7 @@ def test_middle_east_collector_collects_and_deduplicates_events():
                 "reason": "Duplicate report for the same Dubai flagship event.",
                 "event_key": "Pandora Dubai flagship store expansion",
                 "topic": "competition",
+                "impact_tags": ["retail_operations"],
                 "strategic_vertical": "overseas_retail_channels",
                 "relevance_score": 0.82,
             },
@@ -106,6 +108,7 @@ def test_middle_east_collector_collects_and_deduplicates_events():
     assert card["metadata"]["event_key"] == "Pandora Dubai flagship store expansion"
     assert card["metadata"]["topic_source"] == "llm_selected"
     assert card["metadata"]["vertical_source"] == "llm_selected"
+    assert card["metadata"]["impact_tags"] == ["brand_reputation", "retail_operations"]
 
 
 def test_middle_east_collector_changes_queries_by_topic():
@@ -232,6 +235,9 @@ def test_middle_east_collector_prompt_tells_llm_what_to_search_and_write():
     assert "gold_jewellery" in prompt
     assert "social" in prompt
     assert "Allowed topic values" in prompt
+    assert "Allowed impact_tags values" in prompt
+    assert "topic is a single primary intelligence category" in prompt
+    assert "impact_tags are multi-select business impact labels" in prompt
     assert "Allowed strategic_vertical values" in prompt
     assert "jewellery" in prompt or "jewelry" in prompt
     assert "competition" in prompt
@@ -246,6 +252,7 @@ def test_openai_curator_parses_json_decisions():
                 "reason": "Relevant Dubai jewellery signal.",
                 "event_key": "Dubai gold jewellery demand rises",
                 "topic": "product",
+                "impact_tags": ["consumer_demand", "pricing"],
                 "strategic_vertical": "gold_jewellery",
                 "relevance_score": 0.88,
             }
@@ -272,6 +279,7 @@ def test_openai_curator_parses_json_decisions():
     assert decisions[0].keep is True
     assert decisions[0].event_key == "Dubai gold jewellery demand rises"
     assert decisions[0].topic == "product"
+    assert decisions[0].impact_tags == ["consumer_demand", "pricing"]
     assert decisions[0].strategic_vertical == "gold_jewellery"
     assert decisions[0].relevance_score == 0.88
 
@@ -311,6 +319,42 @@ def test_openai_curator_maps_unknown_topic_and_vertical_to_other():
     assert decisions[0].keep is True
     assert decisions[0].topic == "other"
     assert decisions[0].strategic_vertical == "other"
+
+
+def test_openai_curator_filters_unknown_impact_tags():
+    curator = make_curator(
+        [
+            {
+                "candidate_index": 0,
+                "keep": True,
+                "reason": "Regulatory policy may change landed cost.",
+                "event_key": "UAE gold import duty update",
+                "topic": "regulation",
+                "impact_tags": ["compliance", "supply_chain", "unknown_tag"],
+                "strategic_vertical": "gold_jewellery",
+                "relevance_score": 0.8,
+            }
+        ]
+    )
+
+    decisions = curator.curate(
+        prompt="You are the Middle East collector mini-agent.",
+        candidates=[
+            SearchCandidate(
+                title="UAE gold import duty update",
+                url="https://example.com/uae-duty",
+                snippet="The policy may affect jewellery import costs.",
+                source_name="Example",
+            )
+        ],
+        request=CollectionRequest(
+            topic="regulation",
+            strategic_vertical="gold_jewellery",
+            query_focus="import duty supply chain",
+        ),
+    )
+
+    assert decisions[0].impact_tags == ["compliance", "supply_chain"]
 
 
 def test_load_tavily_config():

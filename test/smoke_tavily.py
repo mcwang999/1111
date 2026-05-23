@@ -5,9 +5,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from airs.mini_agents.middle_east_collector import (
+from airs.mini_agents.base_collector import (
     CollectionRequest,
-    MiddleEastCollector,
     OpenAILLMCurator,
     SupabaseWriter,
     TavilySearchProvider,
@@ -15,6 +14,7 @@ from airs.mini_agents.middle_east_collector import (
     load_supabase_config,
     load_tavily_config,
 )
+from airs.mini_agents.middle_east_collector import MiddleEastCollector
 
 # --- Load configs ---
 tavily_config = load_tavily_config()

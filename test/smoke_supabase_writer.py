@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from airs.mini_agents.middle_east_collector import (
+from airs.mini_agents.base_collector import (
     SupabaseWriter,
     load_supabase_config,
 )
