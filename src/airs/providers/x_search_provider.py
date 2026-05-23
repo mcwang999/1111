@@ -37,7 +37,7 @@ class XSearchProvider:
 
     @classmethod
     def from_config(cls, config_path: str | Path = ".config.yaml") -> XSearchProvider:
-        from airs.providers.x_mcp import XMCPProvider
+        from airs.mcp.x_mcp import XMCPProvider
 
         try:
             mcp_provider = XMCPProvider.from_config(config_path)

@@ -36,8 +36,8 @@ from airs.mini_agents.asia_pacific_collector import AsiaPacificCollector
 from airs.mini_agents.europe_collector import EuropeCollector
 from airs.mini_agents.americas_collector import AmericasCollector
 from airs.mini_agents.emerging_markets_collector import EmergingMarketsCollector
-from airs.mini_agents.x_search_provider import XSearchProvider
-from airs.providers.reddit_mcp import RedditMCPProvider
+from airs.providers.x_search_provider import XSearchProvider
+from airs.mcp.reddit_mcp import RedditMCPProvider
 
 
 def build_providers(sources: list[str], config_path: str = ".config.yaml"):

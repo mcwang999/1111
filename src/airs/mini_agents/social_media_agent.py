@@ -1,26 +1,29 @@
 """Social Media Analysis Agent for AIRS.
 
-Searches X/Twitter (and optionally Reddit) for jewellery-related discussions,
-then uses LLM to analyse hot topics, sentiment, and emerging trends relevant
-to Chow Tai Fook's overseas business.
+Searches X/Twitter and Reddit for jewellery industry discussions,
+then uses LLM to produce structured social signal cards.
+
+Each signal card has:
+  - topic: "social" (fixed)
+  - tags: multi-select from [trend, purchase_intent, pain_point, brand_sentiment, occasion, pricing_value]
 
 Pipeline:
-    1. Multi-query search across social platforms
+    1. Multi-query search across X and Reddit
     2. Deduplicate results
-    3. LLM analysis → structured hot-topic report
+    3. LLM analysis → structured social signal cards
     4. Persist to Supabase (optional)
 
 Usage::
 
-    from airs.social_media_agent import SocialMediaAgent
+    from airs.mini_agents.social_media_agent import SocialMediaAgent
 
     agent = SocialMediaAgent.from_config()
     report = agent.analyse(
-        focus="Chow Tai Fook jewellery overseas expansion",
-        regions=["Singapore", "Dubai", "US"],
+        focus="jewellery industry",
+        regions=["Global"],
         time_window="7d",
     )
-    print(report["summary"])
+    print(report.summary)
 """
 
 from __future__ import annotations
@@ -38,79 +41,34 @@ from airs.mini_agents.base_collector import (
     SupabaseWriter,
     load_supabase_config,
 )
-from airs.mini_agents.x_search_provider import XSearchProvider
+from airs.providers.x_search_provider import XSearchProvider
+from airs.mcp.reddit_mcp import RedditMCPProvider
 
 
 # ---------------------------------------------------------------------------
-# Brand & business keywords
+# Default search queries
 # ---------------------------------------------------------------------------
 
-BRAND_KEYWORDS = {
-    # Brand names
-    "Chow Tai Fook", "CTF", "周大福",
-    "Hearts On Fire", "HOF", "赫兹斐亚",
-    # Product categories
-    "jewellery", "jewelry", "jeweller", "jeweler",
-    "gold", "diamond", "gem", "gems", "jade",
-    "watch", "watches", "luxury retail",
-    "bridal", "engagement ring", "solitaire",
-    "bracelet", "necklace", "earring",
-    # Business context
-    "flagship store", "retail expansion", "store opening",
-    "luxury brand", "luxury market",
-}
-
-# Region-specific query templates
-REGION_QUERIES: dict[str, list[str]] = {
-    "Singapore": [
-        "Chow Tai Fook Singapore",
-        "CTF jewellery Singapore store",
-        "周大福 新加坡",
-        "luxury jewellery Singapore retail",
-        "diamond ring Singapore",
-    ],
-    "Dubai": [
-        "Chow Tai Fook Dubai",
-        "gold jewellery Dubai demand",
-        "周大福 迪拜",
-        "luxury retail Dubai expansion",
-        "Dubai gold price jewellery",
-    ],
-    "US": [
-        "Hearts On Fire diamond",
-        "luxury jewellery US retail",
-        "Chow Tai Fook America",
-        "diamond engagement ring trend US",
-        "jewelry store expansion US",
-    ],
-    "Southeast Asia": [
-        "Chow Tai Fook Southeast Asia",
-        "周大福 东南亚",
-        "jewellery retail Malaysia Thailand",
-        "gold demand Southeast Asia",
-        "luxury brand expansion ASEAN",
-    ],
+DEFAULT_REGION_QUERIES: dict[str, list[str]] = {
     "Global": [
-        "Chow Tai Fook overseas expansion",
-        "周大福 海外",
-        "luxury jewellery market trend 2025",
-        "gold price impact jewellery demand",
-        "jewellery brand competition global",
+        "jewellery market trend",
+        "luxury jewellery demand",
+        "diamond engagement ring trend",
+        "gold price jewellery demand",
+        "jewellery brand competition",
     ],
 }
 
 ANALYSIS_PROMPT = """\
-You are the Social Media Intelligence Analyst for AIRS, an overseas strategic
-intelligence platform for Chow Tai Fook Jewellery Group.
+You are the Social Media Intelligence Analyst for AIRS, a jewellery industry
+intelligence platform.
 
-Your task: analyse the following social media posts (mostly from X/Twitter) and
-produce a structured hot-topic report.
+Your task: analyse the following social media posts (from X/Twitter and Reddit)
+and produce a structured hot-topic report.
 
 ## Context
-- Chow Tai Fook (CTF) is a leading jewellery retailer expanding overseas.
-- Key brands: Chow Tai Fook, Hearts On Fire.
-- Focus regions: Singapore, Dubai, US, Southeast Asia.
-- Business verticals: gold jewellery, jade/coloured gems, overseas retail channels.
+- Focus: {focus}
+- Business verticals: {verticals}
 
 ## Instructions
 1. Identify 3-8 **hot topics** — themes that appear repeatedly or have high
@@ -118,14 +76,13 @@ produce a structured hot-topic report.
 2. For each hot topic, provide:
    - `topic_name`: short descriptive name (English)
    - `sentiment`: "positive" | "negative" | "neutral" | "mixed"
-   - `summary`: 1-3 sentence analysis of what people are saying
+   - `summary`: 1-3 sentence analysis
    - `post_count`: how many posts relate to this topic
-   - `key_quotes`: up to 3 representative snippets from the posts
-   - `business_implication`: 1-2 sentence assessment of what this means for CTF
+   - `key_quotes`: up to 3 representative snippets
+   - `business_implication`: 1-2 sentence assessment
    - `regions`: list of relevant regions
-   - `verticals`: list of relevant verticals from [gold_jewellery, jade_colored_gems_cultural_jewellery, overseas_retail_channels]
-3. Provide an overall `summary`: 2-4 sentence executive summary of the social
-   media landscape for CTF's jewellery business.
+   - `verticals`: list of relevant verticals
+3. Provide an overall `summary`: 2-4 sentence executive summary.
 4. Provide `trending_hashtags`: list of any notable hashtags or mentions.
 
 ## Output format
@@ -154,27 +111,25 @@ Return a JSON object with this exact structure:
 """
 
 SOCIAL_SIGNAL_ANALYSIS_PROMPT = """\
-You are the Social Media Intelligence Analyst for AIRS, an overseas strategic
-intelligence platform for Chow Tai Fook Jewellery Group.
+You are the Social Media Intelligence Analyst for AIRS, a jewellery industry
+intelligence platform.
 
 Your task: analyse the following social media posts and produce structured
 social_signal_cards. Social media should be treated as consumer/community
 signals, not as news-event intelligence.
 
 ## Context
-- Chow Tai Fook (CTF) is a leading jewellery retailer expanding overseas.
-- Key brands: Chow Tai Fook, Hearts On Fire.
-- Business verticals: gold_jewellery, jade_colored_gems_cultural_jewellery,
-  overseas_retail_channels.
+- Focus: {focus}
+- Business verticals: {verticals}
 
 ## Instructions
 1. Identify 3-8 social signals across the posts.
 2. For each signal, choose:
-   - `signal_type`: trend | pain_point | purchase_intent | brand_sentiment | occasion | pricing_value
+   - `signal_type`: trend | purchase_intent | pain_point | brand_sentiment | occasion | pricing_value
    - `sentiment`: positive | negative | neutral | mixed
    - `demand_stage`: awareness | consideration | purchase | post_purchase
 3. Preserve traceability with representative quotes and evidence URLs.
-4. Provide business implications for CTF's overseas jewellery business.
+4. Provide business implications for the jewellery industry.
 
 ## Output format
 Return valid JSON only with this exact structure:
@@ -234,11 +189,13 @@ class SocialMediaAgent:
     def __init__(
         self,
         x_provider: XSearchProvider | None = None,
+        reddit_provider: RedditMCPProvider | None = None,
         curator: OpenAILLMCurator | None = None,
         supabase_writer: SupabaseWriter | None = None,
         max_results_per_query: int = 10,
     ) -> None:
         self.x_provider = x_provider
+        self.reddit_provider = reddit_provider
         self.curator = curator
         self.supabase_writer = supabase_writer
         self.max_results_per_query = max_results_per_query
@@ -250,6 +207,12 @@ class SocialMediaAgent:
 
         # X provider
         x_provider = XSearchProvider.from_config(config_path)
+
+        # Reddit provider
+        try:
+            reddit_provider = RedditMCPProvider.from_config(config_path)
+        except Exception:
+            reddit_provider = None
 
         # LLM curator
         curator = OpenAILLMCurator.from_config(config_path)
@@ -265,6 +228,7 @@ class SocialMediaAgent:
 
         return cls(
             x_provider=x_provider,
+            reddit_provider=reddit_provider,
             curator=curator,
             supabase_writer=writer,
         )
@@ -275,8 +239,9 @@ class SocialMediaAgent:
 
     def analyse(
         self,
-        focus: str = "Chow Tai Fook jewellery overseas",
+        focus: str = "jewellery industry",
         regions: list[str] | None = None,
+        verticals: list[str] | None = None,
         time_window: str = "7d",
         extra_queries: list[str] | None = None,
     ) -> SocialMediaReport:
@@ -284,15 +249,18 @@ class SocialMediaAgent:
 
         Args:
             focus: High-level focus area for the analysis.
-            regions: List of regions to search. Defaults to all.
+            regions: List of regions to search. Defaults to Global.
+            verticals: Business verticals relevant to the analysis.
             time_window: Time window like "7d" or "14d".
             extra_queries: Additional search queries beyond the defaults.
 
         Returns:
-            SocialMediaReport with hot topics, summary, and raw data.
+            SocialMediaReport with social signal cards, summary, and raw data.
         """
         if regions is None:
-            regions = list(REGION_QUERIES.keys())
+            regions = list(DEFAULT_REGION_QUERIES.keys())
+        if verticals is None:
+            verticals = ["gold_jewellery", "jade_colored_gems_cultural_jewellery", "overseas_retail_channels"]
 
         # 1. Build queries
         queries = self._build_queries(regions, focus, extra_queries)
@@ -316,7 +284,7 @@ class SocialMediaAgent:
             )
 
         # 4. LLM analysis
-        report = self._analyse_with_llm(unique)
+        report = self._analyse_with_llm(unique, focus=focus, verticals=verticals)
 
         # 5. Persist to Supabase (optional)
         persisted = False
@@ -338,7 +306,7 @@ class SocialMediaAgent:
     ) -> list[str]:
         queries: list[str] = []
         for region in regions:
-            region_queries = REGION_QUERIES.get(region, [])
+            region_queries = DEFAULT_REGION_QUERIES.get(region, [])
             if region_queries:
                 queries.extend(region_queries)
             else:
@@ -379,6 +347,18 @@ class SocialMediaAgent:
                 except Exception as exc:
                     print(f"  [X]   → Error: {exc}")
 
+        if self.reddit_provider is not None:
+            for query in queries:
+                print(f"  [Reddit] Searching: {query}")
+                try:
+                    results = self.reddit_provider.search(
+                        query=query, source_type="reddit", time_window=time_window
+                    )
+                    all_candidates.extend(results)
+                    print(f"  [Reddit]   → {len(results)} results")
+                except Exception as exc:
+                    print(f"  [Reddit]   → Error: {exc}")
+
         return all_candidates
 
     # ------------------------------------------------------------------
@@ -413,14 +393,24 @@ class SocialMediaAgent:
     # ------------------------------------------------------------------
 
     def _analyse_with_llm(
-        self, candidates: list[SearchCandidate]
+        self,
+        candidates: list[SearchCandidate],
+        focus: str = "jewellery industry",
+        verticals: list[str] | None = None,
     ) -> SocialMediaReport:
         if self.curator is None:
             return self._rule_based_analysis(candidates)
 
+        if verticals is None:
+            verticals = ["gold_jewellery", "jade_colored_gems_cultural_jewellery", "overseas_retail_channels"]
+
         # Build the posts text for the LLM prompt
         posts_text = self._format_candidates(candidates)
-        prompt = SOCIAL_SIGNAL_ANALYSIS_PROMPT.format(posts=posts_text)
+        prompt = SOCIAL_SIGNAL_ANALYSIS_PROMPT.format(
+            focus=focus,
+            verticals=", ".join(verticals),
+            posts=posts_text,
+        )
 
         # Call LLM
         try:
@@ -482,9 +472,9 @@ class SocialMediaAgent:
         keywords_map = {
             "Gold Price & Demand": ["gold price", "gold demand", "gold jewellery", "gold market"],
             "Retail Expansion": ["store opening", "flagship", "retail expansion", "new store"],
-            "Brand Buzz": ["Chow Tai Fook", "CTF", "周大福", "Hearts On Fire"],
+            "Brand Buzz": ["luxury brand", "brand launch", "brand campaign", "brand reputation"],
             "Wedding & Bridal": ["wedding", "bridal", "engagement ring", "solitaire"],
-            "Competition": ["competitor", "Pandora", "Signet", "Tiffany", "Cartier", "LVMH"],
+            "Competition": ["competitor", "Pandora", "Signet", "Tiffany", "Cartier", "LVMH", "Richemont"],
             "Regulation & Duty": ["import duty", "tax", "regulation", "customs"],
         }
 
@@ -614,6 +604,7 @@ class SocialMediaAgent:
             platforms = topic.get("platforms") or sorted(
                 {self._platform_from_source(c.source_name) for c in candidates}
             )
+            signal_type = topic.get("signal_type", "trend")
             docs.append({
                 "id": str(uuid4()),
                 "doc_type": "social_signal_card",
@@ -623,10 +614,12 @@ class SocialMediaAgent:
                 "created_by_agent": "social_media_agent",
                 "metadata": {
                     "agent": "social_media_agent",
+                    "topic": "social",
+                    "tags": [signal_type],
                     "focus": focus,
                     "regions": topic.get("regions", []),
                     "verticals": topic.get("verticals", []),
-                    "signal_type": topic.get("signal_type", "trend"),
+                    "signal_type": signal_type,
                     "sentiment": topic.get("sentiment", "mixed"),
                     "demand_stage": topic.get("demand_stage", "consideration"),
                     "post_count": topic.get("post_count", 0),

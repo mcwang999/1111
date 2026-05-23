@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Any
 
 from airs.mini_agents.base_collector import SearchCandidate, parse_simple_yaml
-from airs.providers.base_mcp import BaseMCPClient, MCPServerConfig
+from airs.mcp.base_mcp import BaseMCPClient, MCPServerConfig
 
 DEFAULT_X_MCP_URL = "https://api.getxagent.com/sse"
 DEFAULT_PROXY_URL = "http://127.0.0.1:7890"

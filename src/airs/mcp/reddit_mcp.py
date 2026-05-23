@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from airs.mini_agents.base_collector import SearchCandidate, parse_simple_yaml
-from airs.providers.base_mcp import BaseMCPClient, MCPServerConfig
+from airs.mcp.base_mcp import BaseMCPClient, MCPServerConfig
 
 
 DEFAULT_SUBREDDITS = [
@@ -72,6 +72,10 @@ class RedditMCPProvider:
             "REDDIT_CLIENT_SECRET": cls._clean_optional_secret(section.get("client_secret")),
             "REDDIT_USER_AGENT": str(section.get("user_agent") or "AIRS/0.1"),
         }
+        proxy_url = str(section.get("proxy_url") or DEFAULT_PROXY_URL).strip()
+        if proxy_url and proxy_url.lower() not in {"", "none", "false", "off", "direct"}:
+            env["HTTP_PROXY"] = proxy_url
+            env["HTTPS_PROXY"] = proxy_url
         env = {key: value for key, value in env.items() if value}
 
         subreddits_text = section.get("subreddits")

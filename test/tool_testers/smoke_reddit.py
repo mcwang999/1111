@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from airs.providers.reddit_mcp import RedditMCPProvider
+from airs.mcp.reddit_mcp import RedditMCPProvider
 
 
 provider = RedditMCPProvider.from_config()

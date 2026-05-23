@@ -1,6 +1,6 @@
 """Backward-compatible import path for the Reddit MCP provider."""
 
-from airs.providers.reddit_mcp import DEFAULT_SUBREDDITS, RedditMCPProvider
+from airs.mcp.reddit_mcp import DEFAULT_SUBREDDITS, RedditMCPProvider
 
 RedditSearchProvider = RedditMCPProvider
 

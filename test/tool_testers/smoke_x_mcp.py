@@ -22,7 +22,7 @@ if sys.platform == "win32":
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from airs.providers.x_mcp import XMCPProvider
+from airs.mcp.x_mcp import XMCPProvider
 
 
 def main():
