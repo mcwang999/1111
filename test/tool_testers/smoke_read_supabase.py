@@ -3,30 +3,36 @@
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
 from airs.mini_agents.base_collector import SupabaseWriter, load_supabase_config
 
 cfg = load_supabase_config()
 writer = SupabaseWriter(url=cfg["url"], service_role_key=cfg["service_role_key"])
 
-# --- Read intel_cards ---
+# --- Read intel_cards (regional collectors) + social_signal_cards (social_media_agent) ---
 resp = writer.http_client.get(
-    f"{writer.url}/rest/v1/documents?doc_type=eq.intel_card&select=id,title,metadata,created_at&order=created_at.desc&limit=50",
+    f"{writer.url}/rest/v1/documents?doc_type=in.(intel_card,social_signal_card)&select=id,doc_type,title,metadata,created_at&order=created_at.desc&limit=50",
     headers=writer._headers(),
 )
 cards = resp.json()
-print(f"=== Intel Cards ({len(cards)}) ===")
+print(f"=== Intelligence Cards ({len(cards)}) ===")
 for c in cards:
     meta = c["metadata"]
-    print(f"  [{c['id'][:8]}...] {c['title']}")
-    print(f"    region: {meta.get('region')}")
-    print(f"    topic: {meta.get('topic')}  vertical: {meta.get('strategic_vertical')}")
-    print(f"    importance: {meta.get('importance_score')}  confidence: {meta.get('confidence_score')}")
-    print(f"    sources: {meta.get('source_count')}  event_key: {meta.get('event_key')}")
-    print(f"    topic_source: {meta.get('topic_source')}  vertical_source: {meta.get('vertical_source')}")
-    print(f"    dedup_method: {meta.get('dedup_method')}  canonical_event_key: {meta.get('canonical_event_key')}")
-    print(f"    primary_source_id: {meta.get('primary_source_id')}")
+    dtype = c["doc_type"]
+    print(f"  [{c['id'][:8]}...] ({dtype}) {c['title'][:100]}")
+    print(f"    topic: {meta.get('topic', '?')}  tags: {meta.get('tags', [])}")
+    print(f"    vertical: {meta.get('strategic_vertical') or meta.get('verticals', '?')}")
+    if dtype == "intel_card":
+        print(f"    region: {meta.get('region')}  importance: {meta.get('importance_score')}  confidence: {meta.get('confidence_score')}")
+        print(f"    sources: {meta.get('source_count')}  event_key: {meta.get('event_key')}")
+        print(f"    topic_source: {meta.get('topic_source')}  vertical_source: {meta.get('vertical_source')}")
+        print(f"    dedup_method: {meta.get('dedup_method')}  canonical_event_key: {meta.get('canonical_event_key')}")
+        print(f"    primary_source_id: {meta.get('primary_source_id')}")
+    if dtype == "social_signal_card":
+        print(f"    signal_type: {meta.get('signal_type', '?')}  sentiment: {meta.get('sentiment', '?')}")
+        print(f"    platforms: {meta.get('platforms', [])}  regions: {meta.get('regions', [])}")
+        print(f"    business_implication: {meta.get('business_implication', '?')[:100]}")
     print(f"    created_by: {c.get('created_by_agent', 'N/A')}  created: {c['created_at']}")
     print()
 

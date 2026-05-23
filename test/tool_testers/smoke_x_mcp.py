@@ -20,13 +20,13 @@ if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
 from airs.mcp.x_mcp import XMCPProvider
 
 
 def main():
-    config_path = Path(__file__).resolve().parent.parent / ".config.yaml"
+    config_path = Path(__file__).resolve().parent.parent.parent / ".config.yaml"
     if not config_path.exists():
         print(f"[ERROR] Config file not found: {config_path}")
         sys.exit(1)

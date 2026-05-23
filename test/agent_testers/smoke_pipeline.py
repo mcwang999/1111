@@ -100,14 +100,14 @@ REGION_REQUESTS = [
         source_types=["news", "x"],
     )),
     ("Americas", AmericasCollector, CollectionRequest(
-        topic="platform",
+        topic="channel",
         strategic_vertical="overseas_retail_channels",
         query_focus="jewellery retail channels",
         time_window="14d",
         source_types=["news", "x"],
     )),
     ("Emerging Markets", EmergingMarketsCollector, CollectionRequest(
-        topic="macro_gold",
+        topic="product",
         strategic_vertical="gold_jewellery",
         query_focus="gold demand India Dubai",
         time_window="14d",
@@ -143,7 +143,7 @@ def main():
     )
     args = parser.parse_args()
 
-    config_path = Path(__file__).resolve().parent.parent / args.config
+    config_path = Path(__file__).resolve().parent.parent.parent / args.config
 
     print("=" * 70)
     print("  AIRS Full Pipeline: Search → Curate → Dedup → Write")

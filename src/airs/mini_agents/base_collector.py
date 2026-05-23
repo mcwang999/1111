@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 import json
+import time
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -30,21 +31,17 @@ VERTICAL_LABELS = {
 TOPIC_LABELS = {
     "competition": "competitor and market player moves",
     "product": "product, design, assortment, and consumer preference changes",
-    "platform": "sales channels, retail formats, malls, ecommerce, and platforms",
+    "channel": "retail channels, stores, ecommerce, malls, travel retail, and platforms",
     "social": "social media, community, and consumer conversation signals",
     "regulation": "laws, policy, tax, compliance, labeling, and trade rules",
-    "macro_gold": "gold price, macro economy, currency, and financial market dynamics",
-    "other": "other",
 }
 
 TOPIC_QUERY_HINTS = {
     "competition": ["flagship store", "retail expansion", "brand launch"],
     "product": ["new collection", "jewellery design", "consumer demand"],
-    "platform": ["mall retail", "ecommerce", "travel retail"],
+    "channel": ["mall retail", "ecommerce", "travel retail"],
     "social": ["social media", "TikTok trend", "Instagram jewellery"],
     "regulation": ["import duty", "consumer regulation", "retail policy"],
-    "macro_gold": ["gold price", "gold demand", "currency volatility"],
-    "other": ["industry news", "market update"],
 }
 
 IMPACT_TAG_LABELS = {
@@ -58,7 +55,7 @@ IMPACT_TAG_LABELS = {
     "retail_operations": "store operations, channel execution, staff, service, or customer experience",
     "consumer_demand": "purchase intent, demand, traffic, conversion, or consumer preference",
     "brand_reputation": "brand trust, reputation, sentiment, PR, or competitor perception",
-    "financial_market": "gold price, FX, rates, liquidity, or investor behavior",
+    "gold_price": "gold price, FX, rates, liquidity, or investor behavior",
 }
 
 ALLOWED_TOPICS = set(TOPIC_LABELS)
@@ -138,6 +135,7 @@ class OpenAILLMCurator:
         model: str,
         base_url: str = "https://api.openai.com/v1",
         http_client: Any | None = None,
+        max_retries: int = 3,
     ) -> None:
         import httpx
 
@@ -145,6 +143,7 @@ class OpenAILLMCurator:
         self.model = model
         self.base_url = base_url.rstrip("/")
         self.http_client = http_client or httpx.Client(timeout=120)
+        self.max_retries = max_retries
 
     @classmethod
     def from_config(cls, config_path: str | Path = ".config.yaml") -> OpenAILLMCurator:
@@ -177,41 +176,71 @@ class OpenAILLMCurator:
                 {"role": "user", "content": self.build_user_message(candidates, request)},
             ],
         }
-        try:
-            response = self.http_client.post(
-                f"{self.base_url}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-            )
-        except Exception as exc:
-            print(f"[OpenAILLMCurator] request failed: {exc}")
-            return self._fallback_rule_decisions(candidates)
 
-        if response.status_code >= 400:
-            print(f"[OpenAILLMCurator] API error {response.status_code}: {response.text[:500]}")
-            return self._fallback_rule_decisions(candidates)
+        last_exc: Exception | None = None
+        last_response_text: str | None = None
 
-        try:
-            resp_json = response.json()
-            content = resp_json["choices"][0]["message"]["content"]
-            # Strip markdown code block wrapping if present (```json ... ```)
-            content = content.strip()
-            if content.startswith("```"):
-                # Remove opening ```json or ```
-                first_newline = content.index("\n") if "\n" in content else len(content)
-                content = content[first_newline + 1:]
-                # Remove closing ```
-                if content.endswith("```"):
-                    content = content[:-3].strip()
-            data = json.loads(content)
-            return self.parse_decisions(data, candidates)
-        except (KeyError, IndexError, json.JSONDecodeError) as exc:
-            print(f"[OpenAILLMCurator] parse error: {exc}")
-            print(f"[OpenAILLMCurator] raw response: {response.text[:500]}")
-            return self._fallback_rule_decisions(candidates)
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                response = self.http_client.post(
+                    f"{self.base_url}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                )
+            except Exception as exc:
+                last_exc = exc
+                print(f"[OpenAILLMCurator] request failed (attempt {attempt}/{self.max_retries}): {exc}")
+                if attempt < self.max_retries:
+                    delay = 2 ** attempt  # exponential backoff: 2, 4, 8, ...
+                    print(f"[OpenAILLMCurator] retrying in {delay}s...")
+                    time.sleep(delay)
+                continue
+
+            if response.status_code >= 400:
+                last_response_text = response.text[:500]
+                print(
+                    f"[OpenAILLMCurator] API error {response.status_code} "
+                    f"(attempt {attempt}/{self.max_retries}): {last_response_text}"
+                )
+                if attempt < self.max_retries:
+                    delay = 2 ** attempt
+                    print(f"[OpenAILLMCurator] retrying in {delay}s...")
+                    time.sleep(delay)
+                continue
+
+            # Successful response — attempt to parse
+            try:
+                resp_json = response.json()
+                content = resp_json["choices"][0]["message"]["content"]
+                # Strip markdown code block wrapping if present (```json ... ```)
+                content = content.strip()
+                if content.startswith("```"):
+                    first_newline = content.index("\n") if "\n" in content else len(content)
+                    content = content[first_newline + 1:]
+                    if content.endswith("```"):
+                        content = content[:-3].strip()
+                data = json.loads(content)
+                return self.parse_decisions(data, candidates)
+            except (KeyError, IndexError, json.JSONDecodeError) as exc:
+                print(f"[OpenAILLMCurator] parse error (attempt {attempt}/{self.max_retries}): {exc}")
+                print(f"[OpenAILLMCurator] raw response: {response.text[:500]}")
+                if attempt < self.max_retries:
+                    delay = 2 ** attempt
+                    print(f"[OpenAILLMCurator] retrying in {delay}s...")
+                    time.sleep(delay)
+                continue
+
+        # All retries exhausted
+        if last_exc is not None:
+            print(f"[OpenAILLMCurator] all {self.max_retries} attempts failed — last error: {last_exc}")
+        elif last_response_text is not None:
+            print(f"[OpenAILLMCurator] all {self.max_retries} attempts failed — last API error: {last_response_text}")
+        else:
+            print(f"[OpenAILLMCurator] all {self.max_retries} attempts failed — parse error after all retries")
+        return self._fallback_rule_decisions(candidates)
 
     def _fallback_rule_decisions(
         self, candidates: list[SearchCandidate]
@@ -263,7 +292,7 @@ class OpenAILLMCurator:
                         "keep": True,
                         "reason": "short evidence-based reason",
                         "event_key": "concise human-readable event summary or null",
-                        "topic": "competition|product|platform|social|regulation|macro_gold|other",
+                        "topic": "competition|product|channel|social|regulation",
                         "impact_tags": [
                             "supply_chain",
                             "compliance",
@@ -275,7 +304,7 @@ class OpenAILLMCurator:
                             "retail_operations",
                             "consumer_demand",
                             "brand_reputation",
-                            "financial_market",
+                            "gold_price",
                         ],
                         "strategic_vertical": (
                             "gold_jewellery|jade_colored_gems_cultural_jewellery|"
@@ -848,10 +877,10 @@ class BaseCollector:
             f"Strategic vertical: {request.strategic_vertical}.\n"
             f"Search focus: {request.query_focus}.\n\n"
             f"{self.RELEVANCE_PROMPT}\n\n"
-            "Allowed topic values: competition, product, platform, social, regulation, macro_gold, other.\n"
+            "Allowed topic values: competition, product, channel, social, regulation.\n"
             "Allowed impact_tags values: supply_chain, compliance, cost, pricing, inventory, "
             "logistics, sourcing, retail_operations, consumer_demand, brand_reputation, "
-            "financial_market.\n"
+            "gold_price.\n"
             "Allowed strategic_vertical values: gold_jewellery, "
             "jade_colored_gems_cultural_jewellery, overseas_retail_channels, other.\n"
             "topic is a single primary intelligence category: what kind of jewellery market "

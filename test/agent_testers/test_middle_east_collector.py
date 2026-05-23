@@ -123,7 +123,7 @@ def test_middle_east_collector_changes_queries_by_topic():
     )
     macro_result = collector.collect(
         CollectionRequest(
-            topic="macro_gold",
+            topic="product",
             strategic_vertical="gold_jewellery",
             query_focus="gold price volatility",
         )
