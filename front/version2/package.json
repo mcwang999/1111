@@ -1,0 +1,18 @@
+{
+  "name": "strategic-insight-agent-version2",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Zero-dependency strategic insight backend with frontend-ready feeds.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node tests/run-tests.js && node tests/api-tests.js",
+    "test:core": "node tests/run-tests.js",
+    "test:api": "node tests/api-tests.js",
+    "inspect": "node inspect-node.js"
+  },
+  "engines": {
+    "node": ">=12"
+  },
+  "dependencies": {}
+}

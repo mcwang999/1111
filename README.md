@@ -1,6 +1,6 @@
 # AIRS — Overseas Strategic Intelligence Platform
 
-AIRS (Automated Intelligence Research System) is an AI-powered strategic intelligence platform for Chow Tai Fook Jewellery Group. It continuously collects, curates, and delivers jewellery industry intelligence across global markets — from competitor moves and regulatory changes to social media signals — and pushes daily briefings to Feishu (Lark).
+POLARIS is an AI-powered strategic intelligence platform. It continuously collects, curates, and delivers jewellery industry intelligence across global markets — from competitor moves and regulatory changes to social media signals — and pushes daily briefings to Feishu (Lark).
 
 ## Architecture
 
@@ -277,6 +277,3 @@ python test/tool_testers/smoke_read_supabase.py
 | Delivery | Feishu CLI (lark-cli) |
 | Dashboard | Next.js (TypeScript) |
 
-## License
-
-Proprietary — Chow Tai Fook Jewellery Group

@@ -1,0 +1,1703 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Polaris 插件演示（Version2）</title>
+    <style>
+      :root {
+        --bg: #060815;
+        --panel: rgba(255, 255, 255, 0.06);
+        --panel2: rgba(10, 15, 44, 0.35);
+        --line: rgba(255, 255, 255, 0.12);
+        --fg: rgba(255, 255, 255, 0.92);
+        --muted: rgba(255, 255, 255, 0.6);
+        --muted2: rgba(255, 255, 255, 0.4);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+      }
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei",
+          "PingFang SC", Arial, sans-serif;
+        color: var(--fg);
+        background: radial-gradient(1200px 700px at 15% 20%, rgba(100, 120, 255, 0.35), transparent),
+          radial-gradient(1000px 600px at 90% 0%, rgba(180, 70, 255, 0.25), transparent), var(--bg);
+      }
+      .grid {
+        background-image: linear-gradient(to right, rgba(255, 255, 255, 0.06) 1px, transparent 1px),
+          linear-gradient(to bottom, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+        background-size: 44px 44px;
+      }
+      .wrap {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+      }
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 14px 18px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(8, 12, 30, 0.55);
+        backdrop-filter: blur(12px);
+      }
+      .title {
+        font-weight: 700;
+        letter-spacing: 0.02em;
+      }
+      .sub {
+        font-size: 12px;
+        color: var(--muted);
+        margin-top: 2px;
+      }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.06);
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .btn {
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--fg);
+        border-radius: 999px;
+        padding: 9px 12px;
+        font-weight: 700;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .btn:hover {
+        background: rgba(255, 255, 255, 0.1);
+      }
+      .btn:disabled {
+        opacity: 0.55;
+        cursor: default;
+      }
+      .btn.plain-dark {
+        color: #1f2737;
+        background: #edf2ff;
+        border-color: #d7e1f0;
+      }
+      .layout {
+        flex: 1;
+        min-height: 0;
+        display: grid;
+        grid-template-columns: 72px 360px 1fr 420px;
+      }
+      .rail {
+        border-right: 1px solid var(--line);
+        background: rgba(8, 12, 30, 0.65);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 0;
+      }
+      .rail .app {
+        width: 42px;
+        height: 42px;
+        display: grid;
+        place-items: center;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.06);
+        font-weight: 800;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .panel {
+        border-right: 1px solid var(--line);
+        background: rgba(8, 12, 30, 0.45);
+        padding: 16px;
+        overflow: auto;
+      }
+      .panel h3 {
+        margin: 0;
+        font-size: 12px;
+        color: #fff;
+      }
+      .chat {
+        padding: 18px;
+        overflow: auto;
+      }
+      .chatbox {
+        border: 1px solid var(--line);
+        background: var(--panel2);
+        border-radius: 24px;
+        padding: 18px;
+        min-height: calc(100% - 2px);
+        position: relative;
+        overflow: hidden;
+      }
+      .chatbox::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(to bottom right, rgba(255, 255, 255, 0.06), transparent);
+        pointer-events: none;
+      }
+      .chatbox .msg {
+        position: relative;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.06);
+        border-radius: 18px;
+        padding: 14px;
+        color: var(--muted);
+        margin-top: 12px;
+        font-size: 13px;
+      }
+      .plugin {
+        border-left: 1px solid var(--line);
+        background: rgba(8, 12, 30, 0.55);
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+      .plugin-head {
+        padding: 16px 18px;
+        border-bottom: 1px solid var(--line);
+      }
+      .plugin-body {
+        padding: 16px 18px 18px;
+        overflow: auto;
+      }
+      .card {
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.06);
+        border-radius: 18px;
+        padding: 14px;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .stack {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .muted2 {
+        color: var(--muted2);
+      }
+      .badge {
+        border: 1px solid #d9e3f2;
+        background: #f5f8fd;
+        padding: 5px 9px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 800;
+        color: #4f5f79;
+      }
+      .badge.risk {
+        border-color: #f2d28d;
+        background: #fff4cf;
+        color: #8c5a00;
+      }
+      .badge.opportunity {
+        border-color: #a7d9bf;
+        background: #e8f7ee;
+        color: #1f6b45;
+      }
+      .badge.watch {
+        border-color: #cad7ea;
+        background: #edf3fb;
+        color: #5f6f89;
+      }
+      .badge.high {
+        border-color: #f2c57d;
+        background: #fff1cb;
+        color: #915d00;
+      }
+      .badge.medium {
+        border-color: #9ac8ef;
+        background: #eaf5ff;
+        color: #2c628b;
+      }
+      .list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-top: 12px;
+      }
+      .item {
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.06);
+        border-radius: 18px;
+        padding: 12px;
+        cursor: pointer;
+      }
+      .item:hover {
+        background: rgba(255, 255, 255, 0.09);
+      }
+      .item .t1 {
+        font-size: 13px;
+        font-weight: 800;
+        margin-top: 8px;
+      }
+      .item .t2 {
+        font-size: 12px;
+        color: var(--muted);
+        margin-top: 6px;
+        line-height: 1.35;
+      }
+      .login {
+        max-width: 1040px;
+        margin: 0 auto;
+        padding: 24px;
+        display: grid;
+        grid-template-columns: 1fr 520px;
+        gap: 18px;
+        height: 100%;
+        align-items: center;
+      }
+      .login .hero {
+        padding: 28px;
+        border-radius: 28px;
+        border: 1px solid #d7e1f0;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(244, 248, 255, 0.94));
+        min-height: 520px;
+        color: #1f2737;
+        box-shadow: 0 18px 36px rgba(176, 188, 211, 0.18);
+      }
+      .login .form {
+        padding: 28px;
+        border-radius: 28px;
+        border: 1px solid #d7e1f0;
+        background: rgba(255, 255, 255, 0.94);
+        box-shadow: 0 18px 36px rgba(176, 188, 211, 0.18);
+      }
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-top: 14px;
+      }
+      label {
+        font-size: 12px;
+        font-weight: 800;
+        color: #1f2737;
+      }
+      select,
+      input,
+      textarea {
+        width: 100%;
+        border: 1px solid #d7e1f0;
+        background: rgba(255, 255, 255, 0.96);
+        color: #1f2737;
+        border-radius: 18px;
+        padding: 12px 14px;
+        outline: none;
+        font-size: 13px;
+      }
+      select::placeholder,
+      input::placeholder,
+      textarea::placeholder {
+        color: #93a0b7;
+      }
+      textarea {
+        resize: vertical;
+        min-height: 86px;
+      }
+      .danger {
+        border: 1px solid rgba(244, 63, 94, 0.25);
+        background: rgba(244, 63, 94, 0.12);
+        color: rgba(255, 228, 230, 0.95);
+        border-radius: 18px;
+        padding: 12px 14px;
+        margin-top: 14px;
+        font-size: 13px;
+      }
+      .login-badge-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .login-pill {
+        border-radius: 999px;
+        padding: 6px 12px;
+        background: #edf2ff;
+        border: 1px solid #d9e3f6;
+        color: #5f6f95;
+        font-size: 12px;
+        font-weight: 700;
+      }
+      .drawer {
+        position: fixed;
+        inset: 0;
+        display: none;
+        z-index: 40;
+      }
+      .drawer.open {
+        display: block;
+      }
+      .drawer .mask {
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.55);
+      }
+      .drawer .sheet {
+        position: absolute;
+        top: 0;
+        right: 0;
+        height: 100%;
+        width: min(580px, 100%);
+        border-left: 1px solid var(--line);
+        background: rgba(8, 12, 30, 0.86);
+        backdrop-filter: blur(14px);
+        padding: 18px;
+        overflow: auto;
+      }
+      .sheet h2 {
+        margin: 0;
+        font-size: 16px;
+      }
+      .sheet .close {
+        position: absolute;
+        top: 14px;
+        right: 14px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--fg);
+        width: 36px;
+        height: 36px;
+        cursor: pointer;
+        font-weight: 900;
+      }
+      .worksuite-shell {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        background: #e8eef8;
+        color: #1f2430;
+      }
+      .worksuite-topbar {
+        height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 18px;
+        background: #dfe7f7;
+        border-bottom: 1px solid rgba(136, 151, 181, 0.28);
+      }
+      .window-brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 13px;
+        font-weight: 700;
+        color: #4b5877;
+      }
+      .window-dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 999px;
+        background: linear-gradient(135deg, #7d66ff, #b468ff);
+        box-shadow: 0 0 0 3px rgba(125, 102, 255, 0.16);
+      }
+      .window-actions {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        color: #55627e;
+        font-size: 18px;
+      }
+      .worksuite-main {
+        flex: 1;
+        min-height: 0;
+        display: grid;
+        grid-template-columns: 96px 384px minmax(420px, 1fr);
+        background: #edf2fb;
+      }
+      .sidebar-rail {
+        min-width: 0;
+        background: linear-gradient(180deg, #d7e2f3 0%, #dbe5f4 100%);
+        border-right: 1px solid rgba(150, 165, 192, 0.34);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 14px 10px 12px;
+        gap: 10px;
+      }
+      .sidebar-brand {
+        width: 62px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        margin-bottom: 8px;
+      }
+      .brand-pill {
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        font-size: 13px;
+        font-weight: 800;
+        color: #fff;
+        background: linear-gradient(135deg, #956eff, #d07af6);
+      }
+      .brand-mini {
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: rgba(255, 255, 255, 0.9);
+        color: #8b5cf6;
+        font-size: 13px;
+        box-shadow: 0 6px 12px rgba(122, 131, 166, 0.12);
+      }
+      .rail-actions {
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .rail-action {
+        width: 100%;
+        min-height: 58px;
+        border-radius: 18px;
+        padding: 8px 6px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        color: #5b6782;
+        position: relative;
+        cursor: pointer;
+      }
+      .rail-action.active {
+        background: rgba(255, 255, 255, 0.86);
+        color: #24314d;
+        box-shadow: inset 0 0 0 1px rgba(177, 190, 214, 0.45);
+      }
+      .brief-entry {
+        min-height: 72px;
+        padding-top: 12px;
+      }
+      .rail-icon {
+        width: 28px;
+        height: 28px;
+        border-radius: 10px;
+        display: grid;
+        place-items: center;
+        background: rgba(255, 255, 255, 0.64);
+        font-size: 16px;
+      }
+      .rail-action.active .rail-icon {
+        background: linear-gradient(135deg, #5f84ff, #7a63ff);
+        color: #fff;
+      }
+      .rail-label {
+        font-size: 11px;
+        line-height: 1.1;
+      }
+      .rail-badge {
+        position: absolute;
+        top: 8px;
+        right: 10px;
+        min-width: 18px;
+        height: 18px;
+        padding: 0 5px;
+        border-radius: 999px;
+        background: #f35b55;
+        color: #fff;
+        display: grid;
+        place-items: center;
+        font-size: 11px;
+        font-weight: 700;
+      }
+      .rail-spacer {
+        flex: 1;
+      }
+      .inbox-panel {
+        min-width: 0;
+        padding: 14px 14px 14px 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        background: #e9f0fb;
+        border-right: 1px solid rgba(150, 165, 192, 0.28);
+      }
+      .inbox-search {
+        min-height: 48px;
+        border-radius: 14px;
+        background: #dce6f5;
+        box-shadow: inset 0 0 0 1px rgba(164, 177, 202, 0.35);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 14px;
+        color: #74819a;
+        font-size: 14px;
+      }
+      .inbox-search .kbd {
+        margin-left: auto;
+        color: #8794aa;
+      }
+      .inbox-card {
+        flex: 1;
+        min-height: 0;
+        background: rgba(255, 255, 255, 0.92);
+        border-radius: 18px;
+        box-shadow: inset 0 0 0 1px rgba(220, 227, 238, 0.9), 0 10px 22px rgba(174, 184, 207, 0.16);
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .inbox-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        color: #1d2738;
+      }
+      .inbox-header h2 {
+        margin: 0;
+        font-size: 18px;
+      }
+      .inbox-header-main {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .inbox-control-btn {
+        width: 32px;
+        height: 32px;
+        border-radius: 10px;
+        border: 1px solid #d7e1f0;
+        background: #f3f7fe;
+        color: #62718b;
+        display: grid;
+        place-items: center;
+        cursor: pointer;
+      }
+      .inbox-control-btn:hover {
+        background: #eaf1fb;
+      }
+      .avatar-strip {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px 14px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid #eef2f7;
+      }
+      .avatar-chip {
+        width: 56px;
+        text-align: center;
+      }
+      .avatar-chip span {
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        margin: 0 auto 6px;
+        font-size: 15px;
+        font-weight: 800;
+        color: #fff;
+      }
+      .avatar-chip em {
+        display: block;
+        font-style: normal;
+        font-size: 11px;
+        line-height: 1.25;
+        color: #57647d;
+      }
+      .thread-list {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding-right: 2px;
+      }
+      .thread-item {
+        display: grid;
+        grid-template-columns: 56px 1fr auto;
+        gap: 12px;
+        align-items: center;
+        padding: 10px 12px;
+        border-radius: 14px;
+        cursor: pointer;
+        transition: background 0.16s ease, box-shadow 0.16s ease;
+      }
+      .thread-item:hover {
+        background: #f5f8fd;
+      }
+      .thread-item.selected {
+        background: #dfe9ff;
+        box-shadow: inset 0 0 0 1px rgba(155, 180, 241, 0.42);
+      }
+      .thread-avatar {
+        width: 44px;
+        height: 44px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        font-size: 18px;
+        color: #fff;
+      }
+      .thread-main {
+        min-width: 0;
+      }
+      .thread-title-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+      .thread-title-text {
+        font-size: 15px;
+        font-weight: 700;
+        color: #24314d;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .thread-meta-tag {
+        border-radius: 999px;
+        background: #fff3c4;
+        color: #a26e00;
+        font-size: 11px;
+        padding: 2px 6px;
+        flex: 0 0 auto;
+      }
+      .thread-preview {
+        margin-top: 6px;
+        font-size: 13px;
+        color: #78849a;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .thread-side {
+        align-self: stretch;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        justify-content: space-between;
+        color: #8d98ac;
+        font-size: 12px;
+      }
+      .thread-unread {
+        min-width: 20px;
+        height: 20px;
+        padding: 0 6px;
+        border-radius: 999px;
+        background: #f35b55;
+        color: #fff;
+        display: grid;
+        place-items: center;
+        font-size: 11px;
+        font-weight: 700;
+      }
+      .main-thread {
+        min-width: 0;
+        background: #f7f9fe;
+        display: flex;
+        flex-direction: column;
+        border-right: 1px solid rgba(150, 165, 192, 0.24);
+      }
+      .thread-header {
+        min-height: 96px;
+        padding: 16px 24px 14px;
+        background: rgba(255, 255, 255, 0.78);
+        border-bottom: 1px solid #e6ebf5;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+      .thread-header-main {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        min-width: 0;
+      }
+      .thread-header-avatar {
+        width: 46px;
+        height: 46px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: linear-gradient(135deg, #4d7dff, #5a64ff);
+        color: #fff;
+        font-size: 21px;
+        font-weight: 800;
+      }
+      .thread-header-copy {
+        min-width: 0;
+      }
+      .thread-header-copy .title {
+        color: #1f2737;
+      }
+      .thread-header-copy .sub {
+        color: #7c879b;
+      }
+      .thread-header-tabs {
+        display: flex;
+        gap: 10px;
+        margin-top: 8px;
+      }
+      .thread-tab {
+        border-radius: 10px;
+        padding: 6px 12px;
+        background: #edf2ff;
+        color: #4760b8;
+        font-size: 13px;
+        font-weight: 700;
+        border: 1px solid #d9e3f6;
+        cursor: pointer;
+      }
+      .thread-tab.passive {
+        background: transparent;
+        color: #65738c;
+      }
+      .brief-tab-btn {
+        appearance: none;
+        outline: none;
+      }
+      .thread-header-tools {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 12px;
+        color: #7c879b;
+        font-size: 18px;
+        flex: 0 0 auto;
+        justify-content: flex-end;
+      }
+      .thread-canvas {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding: 28px 28px 18px;
+        background: linear-gradient(180deg, #fbfcff 0%, #f7f9fe 100%);
+      }
+      .brief-workspace {
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+      }
+      .brief-summary-card {
+        background: rgba(255, 255, 255, 0.96);
+        border-radius: 16px;
+        border: 1px solid #ecf0f7;
+        box-shadow: 0 12px 22px rgba(196, 204, 221, 0.14);
+        padding: 18px;
+      }
+      .brief-summary-card h3 {
+        margin: 0 0 10px;
+        font-size: 16px;
+        color: #24314d;
+      }
+      .brief-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .assistant-block {
+        display: flex;
+        gap: 14px;
+        align-items: flex-start;
+        margin-bottom: 22px;
+      }
+      .assistant-badge {
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #4d7dff, #5c69ff);
+        color: #fff;
+        display: grid;
+        place-items: center;
+        font-size: 18px;
+        flex: 0 0 auto;
+      }
+      .assistant-content {
+        flex: 1;
+        min-width: 0;
+      }
+      .assistant-link {
+        color: #3466d6;
+        font-size: 16px;
+        font-weight: 500;
+        text-decoration: none;
+      }
+      .assistant-link:hover {
+        text-decoration: underline;
+      }
+      .doc-card {
+        margin-top: 12px;
+        background: rgba(255, 255, 255, 0.96);
+        border-radius: 16px;
+        border: 1px solid #ecf0f7;
+        box-shadow: 0 12px 22px rgba(196, 204, 221, 0.14);
+        padding: 16px 16px 14px;
+      }
+      .doc-card h3 {
+        margin: 0;
+        font-size: 16px;
+        color: #24314d;
+      }
+      .doc-preview {
+        margin-top: 14px;
+        border: 1px solid #e8edf7;
+        border-radius: 12px;
+        background: linear-gradient(180deg, #fbfcff, #f4f7fc);
+        padding: 16px;
+        color: #33415d;
+      }
+      .doc-grid {
+        display: grid;
+        grid-template-columns: 1.15fr 1fr 1fr;
+        gap: 8px;
+        margin-top: 12px;
+      }
+      .doc-grid span {
+        border-radius: 8px;
+        background: #fff;
+        border: 1px solid #eef2f8;
+        padding: 10px;
+        min-height: 52px;
+        font-size: 11px;
+        color: #60708c;
+      }
+      .thread-info-line {
+        margin-top: 14px;
+        font-size: 13px;
+        color: #7d8799;
+      }
+      .thread-info-line strong {
+        color: #44516c;
+      }
+      .brief-action-btn {
+        width: 100%;
+        justify-content: space-between;
+        color: #44516c;
+        background: #f7faff;
+        border-color: #d9e3f6;
+        text-align: left;
+      }
+      .brief-action-btn strong {
+        color: #1f2737;
+      }
+      .thread-composer {
+        padding: 14px 24px 20px;
+        background: #f7f9fe;
+      }
+      .composer-shell {
+        min-height: 72px;
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.94);
+        border: 1px solid #dbe3f0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 0 18px;
+        color: #7e889a;
+      }
+      .composer-actions {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        font-size: 16px;
+      }
+      .main-thread .btn,
+      .main-thread .badge.watch,
+      .main-thread .pill {
+        background: #f5f8fd;
+        border-color: #dbe3f0;
+        color: #5e6b83;
+      }
+      .main-thread .card,
+      .main-thread .item {
+        background: rgba(255, 255, 255, 0.94);
+        border-color: #e6ecf6;
+        color: #24314d;
+      }
+      .main-thread .item:hover {
+        background: #f8fbff;
+      }
+      .main-thread button.item {
+        width: 100%;
+        text-align: left;
+        cursor: pointer;
+        appearance: none;
+        outline: none;
+      }
+      @media (max-width: 1180px) {
+        .worksuite-main {
+          grid-template-columns: 84px 332px minmax(320px, 1fr);
+        }
+      }
+      @media (max-width: 980px) {
+        .worksuite-main {
+          grid-template-columns: 84px 1fr;
+        }
+        .main-thread {
+          display: none;
+        }
+        .inbox-panel {
+          border-right: none;
+        }
+      }
+    </style>
+  </head>
+  <body class="grid">
+    <div id="root" class="wrap"></div>
+
+    <div id="drawer" class="drawer">
+      <div class="mask" id="drawerMask"></div>
+      <div class="sheet">
+        <button id="drawerClose" class="close" type="button">×</button>
+        <div id="drawerBody"></div>
+      </div>
+    </div>
+
+    <script>
+      const USERS = [
+        { username: "A", password: "demo123", label: "集团战略层", user_tag: "A" },
+        { username: "B1", password: "demo123", label: "业务决策层（市场）", user_tag: "B1_market" },
+        { username: "B2", password: "demo123", label: "业务决策层（产品）", user_tag: "B2_product" },
+        { username: "B3", password: "demo123", label: "业务决策层（供应链）", user_tag: "B3_supply_chain" },
+        { username: "C1", password: "demo123", label: "区域运营层（东亚）", user_tag: "C1_east_asia" },
+        { username: "C2", password: "demo123", label: "区域运营层（东南亚）", user_tag: "C2_southeast_asia" },
+        { username: "C3", password: "demo123", label: "区域运营层（北美）", user_tag: "C3_north_america" },
+        { username: "C4", password: "demo123", label: "区域运营层（大洋洲）", user_tag: "C4_oceania" },
+      ];
+
+      const CHAT_SEEDS = [
+        {
+          id: "polaris-brief",
+          title: "Polaris 每日战略简报",
+          preview: "集团与业务角色专属战略推送面板",
+          unread: 1,
+          date: "刚刚",
+          avatar: "P",
+          avatarStyle: "linear-gradient(135deg, #7d66ff, #b468ff)",
+          selected: true,
+        },
+        {
+          id: "area-weekly",
+          title: "区域周报",
+          preview: "下周关注东南亚渠道变化",
+          unread: 0,
+          date: "昨天",
+          avatar: "区",
+          avatarStyle: "linear-gradient(135deg, #62d4b8, #42b883)",
+        },
+        {
+          id: "supply-chain",
+          title: "供应链群",
+          preview: "原材料价格波动有新信号",
+          unread: 2,
+          date: "昨天",
+          avatar: "供",
+          avatarStyle: "linear-gradient(135deg, #ffb257, #ff8d4f)",
+        },
+        {
+          id: "ceo-office",
+          title: "CEO Office",
+          preview: "需要更聚焦的 A 层简报",
+          unread: 0,
+          date: "5月24日",
+          avatar: "A",
+          avatarStyle: "linear-gradient(135deg, #7567ff, #9e6dff)",
+        },
+        {
+          id: "smart-brief",
+          title: "智能纪要助手",
+          preview: "[链接]智能纪要：企业级 AI Agent 赛题方案讨论 2026年5月23日",
+          unread: 0,
+          date: "昨天",
+          avatar: "⇄",
+          avatarStyle: "linear-gradient(135deg, #4d7dff, #5c69ff)",
+          tag: "机器人",
+        },
+        {
+          id: "approval-bot",
+          title: "审批",
+          preview: "每日待办提醒：“付款申请”待处理",
+          unread: 0,
+          date: "昨天",
+          avatar: "✓",
+          avatarStyle: "linear-gradient(135deg, #ff8d38, #ffba39)",
+          tag: "机器人",
+        },
+      ];
+      const CONTACT_SEEDS = [
+        { label: "知识问答", avatar: "◌", avatarStyle: "linear-gradient(135deg, #d972ff, #f7b267)" },
+        { label: "曾昆", avatar: "曾", avatarStyle: "linear-gradient(135deg, #2ed1c5, #56cfe1)" },
+        { label: "斌雄", avatar: "斌", avatarStyle: "linear-gradient(135deg, #29c785, #22c55e)" },
+        { label: "国军才不", avatar: "国", avatarStyle: "linear-gradient(135deg, #5b7cfa, #60a5fa)" },
+        { label: "王伟", avatar: "王", avatarStyle: "linear-gradient(135deg, #69c37d, #8dd17e)" },
+        { label: "龙霄", avatar: "龙", avatarStyle: "linear-gradient(135deg, #b86cff, #d07ef7)" },
+      ];
+      const RAIL_ITEMS = [
+        { id: "messages", icon: "💬", label: "消息", badge: 7, active: true },
+        { id: "knowledge", icon: "◎", label: "问答" },
+        { id: "docs", icon: "▦", label: "文档" },
+        { id: "calendar", icon: "◫", label: "日历" },
+        { id: "work", icon: "◈", label: "工作台", badge: 1 },
+        { id: "mail", icon: "✉", label: "邮箱", badge: 1 },
+        { id: "contacts", icon: "👥", label: "联系人" },
+      ];
+
+      const $root = document.getElementById("root");
+      const $drawer = document.getElementById("drawer");
+      const $drawerBody = document.getElementById("drawerBody");
+      const $drawerMask = document.getElementById("drawerMask");
+      const $drawerClose = document.getElementById("drawerClose");
+      const API_BASE =
+        window.location.protocol === "file:"
+          ? "http://127.0.0.1:8788"
+          : `${window.location.protocol}//${window.location.host}`;
+
+      function safeJsonParse(raw) {
+        try {
+          return JSON.parse(raw);
+        } catch (e) {
+          return null;
+        }
+      }
+
+      function getSession() {
+        const raw = localStorage.getItem("polaris_demo_session");
+        const s = raw ? safeJsonParse(raw) : null;
+        if (!s || !s.username || !s.user_tag) return null;
+        return { username: String(s.username), label: String(s.label || s.username), user_tag: String(s.user_tag) };
+      }
+
+      function setSession(session) {
+        if (!session) {
+          localStorage.removeItem("polaris_demo_session");
+          return;
+        }
+        localStorage.setItem("polaris_demo_session", JSON.stringify(session));
+      }
+
+      function getPushes() {
+        const raw = localStorage.getItem("polaris_demo_pushes");
+        const parsed = raw ? safeJsonParse(raw) : null;
+        return Array.isArray(parsed) ? parsed : [];
+      }
+
+      function setPushes(pushes) {
+        localStorage.setItem("polaris_demo_pushes", JSON.stringify(Array.isArray(pushes) ? pushes : []));
+      }
+
+      function badge(tone, text) {
+        const t = tone || "watch";
+        return `<span class="badge ${t}">${escapeHtml(text)}</span>`;
+      }
+
+      function priBadge(priority) {
+        const p = priority || "low";
+        return `<span class="badge ${p === "high" ? "high" : p === "medium" ? "medium" : "watch"}">${escapeHtml(
+          String(p).toUpperCase(),
+        )}</span>`;
+      }
+
+      function escapeHtml(value) {
+        return String(value || "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+      }
+
+      async function requestJson(path, init) {
+        const target = /^https?:\/\//i.test(path) ? path : `${API_BASE}${path}`;
+        const res = await fetch(target, init);
+        const text = await res.text();
+        const json = text ? safeJsonParse(text) : {};
+        if (!res.ok) {
+          const msg = (json && (json.detail || json.error)) || `HTTP ${res.status}`;
+          throw new Error(String(msg));
+        }
+        return json;
+      }
+
+      function openDrawer(html) {
+        $drawerBody.innerHTML = html;
+        $drawer.classList.add("open");
+      }
+
+      function closeDrawer() {
+        $drawer.classList.remove("open");
+        $drawerBody.innerHTML = "";
+      }
+
+      $drawerMask.addEventListener("click", closeDrawer);
+      $drawerClose.addEventListener("click", closeDrawer);
+      window.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") closeDrawer();
+      });
+
+      function renderLogin() {
+        const userOptions = USERS.map(
+          (u) => `<option value="${u.username}">${escapeHtml(u.username)} · ${escapeHtml(u.label)}</option>`,
+        ).join("");
+        $root.innerHTML = `
+          <div class="login">
+            <div class="hero">
+              <div class="login-badge-row">
+                <span class="login-pill">Polaris 每日战略简报</span>
+                <span class="login-pill">飞书式协同工作台</span>
+              </div>
+              <div class="title" style="font-size: 30px; color: #1f2737; margin-top: 18px;">欢迎进入 Polaris 战略简报工作台</div>
+              <div class="sub" style="font-size: 14px; line-height: 1.6; max-width: 520px; color: #6f7d96;">
+                为集团战略层、业务决策层、区域运营层提供统一的战略简报浏览、重点提升与协同查看体验。
+              </div>
+              <div class="card" style="margin-top: 18px;">
+                <div class="row">
+                  <span class="badge watch">提示</span>
+                  <span class="muted" style="color: #60708c;">统一密码：demo123</span>
+                </div>
+                <div class="sub" style="margin-top: 10px; color: #60708c;">
+                  业务决策层与区域运营层可对重点简报进行 Push，集团战略层会同步看到被提升关注的内容。
+                </div>
+              </div>
+            </div>
+            <div class="form">
+              <div class="title" style="font-size: 22px; color: #1f2737;">登录</div>
+              <div class="sub" style="color: #6f7d96;">选择一个层级身份进入战略简报工作台</div>
+              <div class="field">
+                <label>用户名</label>
+                <select id="loginUser">${userOptions}</select>
+              </div>
+              <div class="field">
+                <label>密码</label>
+                <input id="loginPass" type="password" value="demo123" />
+              </div>
+              <div id="loginErr"></div>
+              <div class="field">
+                <button id="loginBtn" class="btn plain-dark" type="button" style="width: 100%; padding: 12px 14px; border-radius: 18px;">
+                  进入工作台
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
+
+        const $user = document.getElementById("loginUser");
+        const $pass = document.getElementById("loginPass");
+        const $btn = document.getElementById("loginBtn");
+        const $err = document.getElementById("loginErr");
+
+        $btn.addEventListener("click", () => {
+          const username = String($user.value || "").trim();
+          const password = String($pass.value || "");
+          const u = USERS.find((x) => x.username === username);
+          if (!u) {
+            $err.innerHTML = `<div class="danger">用户名不存在</div>`;
+            return;
+          }
+          if (u.password !== password) {
+            $err.innerHTML = `<div class="danger">密码错误</div>`;
+            return;
+          }
+          setSession({ username: u.username, label: u.label, user_tag: u.user_tag });
+          renderWork();
+        });
+      }
+
+      function pluginListHtml(items) {
+        if (!items || !items.length) {
+          return `<div class="card muted" style="font-size: 13px;">当前暂无可查看的战略简报</div>`;
+        }
+        return `<div class="list">${items
+          .map((c) => {
+            const tone = (c.ui && c.ui.tone) || "watch";
+            const pri = (c.ui && c.ui.priority) || "low";
+            return `
+              <button class="item" type="button" data-insight="${escapeHtml(c.insight_id)}">
+                <div class="row">
+                  ${badge(tone, (c.ui && c.ui.badge) || tone)}
+                  ${priBadge(pri)}
+                </div>
+                <div class="t1">${escapeHtml(c.title)}</div>
+                <div class="t2">${escapeHtml(c.summary || "")}</div>
+              </button>
+            `;
+          })
+          .join("")}</div>`;
+      }
+
+      function renderWork() {
+        const session = getSession();
+        if (!session) {
+          renderLogin();
+          return;
+        }
+
+        let selectedThreadId = (CHAT_SEEDS.find((thread) => thread.selected) || CHAT_SEEDS[0]).id;
+
+        $root.innerHTML = `
+          <div class="worksuite-shell">
+            <div class="worksuite-topbar">
+              <div class="window-brand">
+                <span class="window-dot"></span>
+                <span>Polaris WorkSuite Demo</span>
+              </div>
+              <div class="window-actions">
+                <span title="历史">◔</span>
+                <span title="最小化">—</span>
+                <span title="窗口">□</span>
+                <span title="关闭">×</span>
+              </div>
+            </div>
+            <div class="worksuite-main worksuite-shell">
+              <aside class="sidebar-rail">
+                <div class="sidebar-brand">
+                  <div class="brand-pill">P</div>
+                  <div class="brand-mini">✦</div>
+                </div>
+                <div class="rail-actions" id="railActions"></div>
+                <div class="rail-spacer"></div>
+                <div class="rail-action" id="clearPushBtn" title="清空 pushes">
+                  <div class="rail-icon">⌫</div>
+                  <div class="rail-label">清空</div>
+                </div>
+              </aside>
+              <section class="inbox-panel">
+                <div class="inbox-search">
+                  <span>🔍 搜索</span>
+                  <span class="kbd">Ctrl + K</span>
+                </div>
+                <div class="inbox-card">
+                  <div class="inbox-header">
+                    <div class="inbox-header-main">
+                      <h2>消息</h2>
+                    </div>
+                    <button class="inbox-control-btn" id="inboxControlBtn" type="button" title="消息设置">☰</button>
+                  </div>
+                  <div class="avatar-strip" id="contactStrip"></div>
+                  <div class="thread-list" id="chatList"></div>
+                </div>
+              </section>
+              <main class="main-thread">
+                <div class="thread-header">
+                  <div class="thread-header-main">
+                    <div class="thread-header-avatar">P</div>
+                    <div class="thread-header-copy">
+                      <div class="title" id="threadTitle">Polaris 战略简报</div>
+                      <div class="sub" id="threadSub">集团/业务/区域视角统一策略分发 · 当前用户：${escapeHtml(session.label)}</div>
+                      <div class="thread-header-tabs">
+                        <button class="thread-tab brief-tab-btn" type="button">简报</button>
+                        <button class="thread-tab passive brief-tab-btn" type="button" id="focusStrategyBtn">策略</button>
+                        <button class="thread-tab passive brief-tab-btn" type="button" id="focusSourcesBtn">来源</button>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="thread-header-tools">
+                    <button class="btn" id="refreshBtn" type="button">刷新简报</button>
+                    <button class="btn" id="debugBtn" type="button">查看策略</button>
+                    <button class="btn" id="logoutBtn" type="button">退出登录</button>
+                  </div>
+                </div>
+                <div class="thread-canvas">
+                  <div class="brief-workspace">
+                    <div class="brief-summary-card">
+                      <h3>Polaris 战略简报</h3>
+                      <button class="btn brief-action-btn" type="button" id="currentLevelBtn" style="margin-top: 12px;">
+                        <span>当前用户</span>
+                        <strong>${escapeHtml(session.label)}</strong>
+                      </button>
+                      <button class="btn brief-action-btn" type="button" id="pushSummaryBtn" style="margin-top: 10px;">
+                        <span>跨层级重点关注</span>
+                        <strong id="pushCount">0</strong>
+                      </button>
+                      <button class="btn brief-action-btn" type="button" id="metricsBtn" style="margin-top: 10px;">
+                        <span>简报状态</span>
+                        <strong id="metricsMsg">正在整理适合当前层级查看的战略简报…</strong>
+                      </button>
+                    </div>
+                    <div id="strategyBox"></div>
+                    <div id="pluginList"></div>
+                  </div>
+                </div>
+                <div class="thread-composer">
+                  <div class="composer-shell">
+                    <span>查看角色定向推送与策略摘要</span>
+                    <div class="composer-actions">
+                      <span>↻</span>
+                      <span>筛选</span>
+                      <span>标签</span>
+                      <span>来源</span>
+                    </div>
+                  </div>
+                </div>
+              </main>
+            </div>
+          </div>
+        `;
+
+        const $chatList = document.getElementById("chatList");
+        const $threadTitle = document.getElementById("threadTitle");
+        const $threadSub = document.getElementById("threadSub");
+        const $contactStrip = document.getElementById("contactStrip");
+
+        function renderRail() {
+          document.getElementById("railActions").innerHTML = RAIL_ITEMS.map(
+            (item) => `
+              <div class="rail-action ${item.active ? "active" : ""} ${item.brief ? "brief-entry" : ""}" data-rail="${escapeHtml(item.id)}">
+                <div class="rail-icon">${escapeHtml(item.icon)}</div>
+                <div class="rail-label">${escapeHtml(item.label)}</div>
+                ${item.badge ? `<span class="rail-badge">${escapeHtml(String(item.badge))}</span>` : ""}
+              </div>
+            `,
+          ).join("");
+        }
+
+        function renderContacts() {
+          $contactStrip.innerHTML = CONTACT_SEEDS.map(
+            (person) => `
+              <div class="avatar-chip">
+                <span style="background:${escapeHtml(person.avatarStyle)}">${escapeHtml(person.avatar)}</span>
+                <em>${escapeHtml(person.label)}</em>
+              </div>
+            `,
+          ).join("");
+        }
+
+        function renderThreadList() {
+          $chatList.innerHTML = CHAT_SEEDS.map((thread) => {
+            const selected = thread.id === selectedThreadId;
+            return `
+              <div class="thread-item ${selected ? "selected" : ""}" data-thread="${escapeHtml(thread.id)}">
+                <div class="thread-avatar" style="background:${escapeHtml(thread.avatarStyle)}">${escapeHtml(thread.avatar)}</div>
+                <div class="thread-main">
+                  <div class="thread-title-row">
+                    <span class="thread-title-text">${escapeHtml(thread.title)}</span>
+                    ${thread.tag ? `<span class="thread-meta-tag">${escapeHtml(thread.tag)}</span>` : ""}
+                  </div>
+                  <div class="thread-preview">${escapeHtml(thread.preview)}</div>
+                </div>
+                <div class="thread-side">
+                  <span>${escapeHtml(thread.date || "")}</span>
+                  ${thread.unread ? `<span class="thread-unread">${escapeHtml(String(thread.unread))}</span>` : `<span></span>`}
+                </div>
+              </div>
+            `;
+          }).join("");
+        }
+
+        function syncSelectedThread() {
+          renderThreadList();
+          Array.from(document.querySelectorAll(".thread-item[data-thread]")).forEach((node) => {
+            node.addEventListener("click", () => {
+              selectedThreadId = node.getAttribute("data-thread") || selectedThreadId;
+              syncSelectedThread();
+            });
+          });
+        }
+
+        renderRail();
+        renderContacts();
+        syncSelectedThread();
+
+        const bindBriefControls = () => {
+          const $focusStrategyBtn = document.getElementById("focusStrategyBtn");
+          if ($focusStrategyBtn) {
+            $focusStrategyBtn.addEventListener("click", () => {
+              document.getElementById("strategyBox")?.scrollIntoView({ behavior: "smooth", block: "start" });
+            });
+          }
+          const $focusSourcesBtn = document.getElementById("focusSourcesBtn");
+          if ($focusSourcesBtn) {
+            $focusSourcesBtn.addEventListener("click", () => {
+              document.getElementById("pluginList")?.scrollIntoView({ behavior: "smooth", block: "start" });
+            });
+          }
+          const $currentLevelBtn = document.getElementById("currentLevelBtn");
+          if ($currentLevelBtn) {
+            $currentLevelBtn.addEventListener("click", () => {
+              openDrawer(`<div class="card">当前登录身份：${escapeHtml(session.label)}</div>`);
+            });
+          }
+          const $pushSummaryBtn = document.getElementById("pushSummaryBtn");
+          if ($pushSummaryBtn) {
+            $pushSummaryBtn.addEventListener("click", () => {
+              openDrawer(`<div class="card">当前已累计 ${escapeHtml(String(getPushes().length))} 条跨层级重点关注。</div>`);
+            });
+          }
+          const $metricsBtn = document.getElementById("metricsBtn");
+          if ($metricsBtn) {
+            $metricsBtn.addEventListener("click", () => {
+              openDrawer(`<div class="card">${escapeHtml(document.getElementById("metricsMsg")?.textContent || "")}</div>`);
+            });
+          }
+        };
+
+        bindBriefControls();
+
+        const $inboxControlBtn = document.getElementById("inboxControlBtn");
+        if ($inboxControlBtn) {
+          $inboxControlBtn.addEventListener("click", () => {
+            openDrawer(`<div class="card">消息筛选、分组与通知控制会在这里展开。</div>`);
+          });
+        }
+
+        document.getElementById("logoutBtn").addEventListener("click", () => {
+          setSession(null);
+          renderLogin();
+        });
+
+        document.getElementById("clearPushBtn").addEventListener("click", async () => {
+          setPushes([]);
+          document.getElementById("pushCount").textContent = "0";
+          await runAnalyze();
+        });
+
+        document.getElementById("refreshBtn").addEventListener("click", async () => {
+          await runAnalyze();
+        });
+
+        document.getElementById("debugBtn").addEventListener("click", async () => {
+          try {
+            const s = await requestJson("/strategy");
+            openDrawer(`
+              <div class="row">
+                ${badge("watch", "策略关键词")}
+                <span class="muted">当前策略关键词</span>
+              </div>
+              <div class="card" style="margin-top: 12px;">
+                <div class="muted" style="font-size: 13px; line-height: 1.6;">${escapeHtml((s.strategy_keywords || []).join(", "))}</div>
+              </div>
+            `);
+          } catch (e) {
+            openDrawer(`<div class="danger">${escapeHtml(String(e.message || e))}</div>`);
+          }
+        });
+
+        async function renderStrategyEditor() {
+          const box = document.getElementById("strategyBox");
+          if (!box) return;
+          const isStrategic = session.user_tag === "A";
+          const isBusiness = String(session.user_tag || "").startsWith("B");
+          let strategy = [];
+          try {
+            const s = await requestJson("/strategy");
+            strategy = Array.isArray(s.strategy_keywords) ? s.strategy_keywords : [];
+          } catch (e) {}
+          const strategyCard = `
+            <div class="card" style="margin-bottom: 12px;">
+              <div class="row" style="justify-content: space-between;">
+                <div style="font-size: 12px; font-weight: 900;">策略关键词（仅集团战略层可更新，其他层级可查看）</div>
+              </div>
+              <div class="sub" style="margin-top: 8px;">用于统一当前战略重点与主题方向</div>
+              <textarea id="strategyInput" style="margin-top: 10px; color: #1f2737;" rows="3" ${isStrategic ? "" : "readonly"}>${escapeHtml(strategy.join(", "))}</textarea>
+              <div class="row" style="justify-content: flex-end; margin-top: 10px;">
+                ${
+                  isStrategic
+                    ? `<button class="btn" id="saveStrategyBtn" type="button">保存策略</button>`
+                    : `<span class="pill">当前层级仅查看</span>`
+                }
+              </div>
+            </div>
+          `;
+          const minutesCard = isBusiness
+            ? `
+              <div class="card" style="margin-bottom: 12px;">
+                <div class="row" style="justify-content: space-between;">
+                  <div style="font-size: 12px; font-weight: 900;">导入会议纪要（业务决策层）</div>
+                  <span class="pill">提炼重点</span>
+                </div>
+                <div class="sub" style="margin-top: 8px;">粘贴会议纪要后，自动提炼出建议关注的关键词</div>
+                <textarea id="minutesInput" style="margin-top: 10px; color: #1f2737;" rows="5" placeholder="粘贴会议纪要、业务讨论记录或项目同步摘要"></textarea>
+                <div class="row" style="justify-content: flex-end; margin-top: 10px;">
+                  <button class="btn" id="extractMinutesBtn" type="button">导入并提炼</button>
+                </div>
+              </div>
+            `
+            : "";
+          box.innerHTML = `${strategyCard}${minutesCard}`;
+          const $saveBtn = document.getElementById("saveStrategyBtn");
+          if ($saveBtn) {
+            $saveBtn.addEventListener("click", async () => {
+              const input = document.getElementById("strategyInput").value || "";
+              const next = input
+                .split(/[,，、\n]/)
+                .map((x) => x.trim())
+                .filter(Boolean);
+              if (!next.length) return;
+              try {
+                await requestJson("/strategy", {
+                  method: "PUT",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ strategy_keywords: next }),
+                });
+                await renderStrategyEditor();
+                await runAnalyze();
+              } catch (e) {
+                openDrawer(`<div class="danger">${escapeHtml(String(e.message || e))}</div>`);
+              }
+            });
+          }
+          const $extractBtn = document.getElementById("extractMinutesBtn");
+          if ($extractBtn) {
+            $extractBtn.addEventListener("click", async () => {
+              const minutes = (document.getElementById("minutesInput").value || "").trim();
+              if (!minutes) return;
+              try {
+                const result = await requestJson("/strategy/extract", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ minutes, method: "textrank", max_keywords: 8, apply: false }),
+                });
+                openDrawer(`
+                  <div class="row">
+                    ${badge("watch", "会议纪要提炼结果")}
+                  </div>
+                  <div class="card" style="margin-top: 12px;">
+                    <div class="muted" style="font-size: 13px; line-height: 1.8;">${escapeHtml((result.strategy_keywords || []).join("，"))}</div>
+                  </div>
+                `);
+              } catch (e) {
+                openDrawer(`<div class="danger">${escapeHtml(String(e.message || e))}</div>`);
+              }
+            });
+          }
+        }
+
+        async function runAnalyze() {
+          const pushes = getPushes();
+          document.getElementById("pushCount").textContent = String(pushes.length);
+          try {
+            const payload = { source: "supabase", manual_pushes: pushes };
+            const result = await requestJson("/analyze", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            });
+            const feeds = result && result.feeds ? result.feeds : {};
+            const cards = session.user_tag === "A" ? feeds.A || [] : feeds[session.user_tag] || [];
+            document.getElementById("metricsMsg").textContent = cards.length
+              ? `已为${session.label}整理 ${cards.length} 条战略简报`
+              : `当前暂无适合${session.label}查看的战略简报`;
+            document.getElementById("pluginList").innerHTML = pluginListHtml(cards);
+            bindCardClick(cards);
+          } catch (e) {
+            document.getElementById("metricsMsg").textContent = "暂时无法加载战略简报";
+            document.getElementById("pluginList").innerHTML = `<div class="danger">请稍后再试</div>`;
+          }
+        }
+
+        function bindCardClick(cards) {
+          const nodes = Array.from(document.querySelectorAll(".item[data-insight]"));
+          nodes.forEach((node) => {
+            node.addEventListener("click", () => {
+              const id = node.getAttribute("data-insight");
+              const card = cards.find((c) => c.insight_id === id);
+              if (!card) return;
+              openDrawer(drawerHtml(card, session));
+              bindDrawerActions(card, session);
+            });
+          });
+        }
+
+        function drawerHtml(card, session) {
+          const tone = (card.ui && card.ui.tone) || "watch";
+          const badgeText = (card.ui && card.ui.badge) || tone;
+          const pri = (card.ui && card.ui.priority) || "low";
+          const pushCount = card.push && typeof card.push.push_count === "number" ? card.push.push_count : 0;
+          const canPush = session.user_tag !== "A" && String(card.audience_level || "") !== "A";
+          const sourceList = (card.source_cards || [])
+            .map((s) => {
+              const link = s.source_url ? `<a href="${escapeHtml(s.source_url)}" target="_blank" rel="noreferrer" class="btn" style="padding: 6px 10px;">打开</a>` : "";
+              return `
+                <div class="card" style="margin-top: 10px;">
+                  <div class="row" style="justify-content: space-between;">
+                    <div style="font-weight: 900; font-size: 13px;">${escapeHtml(s.title || "（无标题）")}</div>
+                    ${link}
+                  </div>
+                  <div class="sub" style="margin-top: 8px;">${escapeHtml(s.summary || "")}</div>
+                  <div class="sub" style="margin-top: 10px;">${escapeHtml(s.region || "unknown")} · ${escapeHtml(s.topic || "unknown")} · ${escapeHtml(
+                s.strategic_vertical || "unknown",
+              )}</div>
+                </div>
+              `;
+            })
+            .join("");
+
+          return `
+            <div class="row">
+              ${badge(tone, badgeText)}
+              ${priBadge(pri)}
+              <span class="pill">重点关注 ${pushCount}</span>
+              <span class="pill">${escapeHtml(card.audience_level)} 层级</span>
+            </div>
+            <h2 style="margin-top: 12px;">${escapeHtml(card.title)}</h2>
+            <div class="sub" style="margin-top: 10px;">${escapeHtml(card.summary || "")}</div>
+            <div class="card" style="margin-top: 12px; font-size: 13px; line-height: 1.55; color: var(--fg);">
+              ${escapeHtml(card.insight || "")}
+            </div>
+            ${
+              canPush
+                ? `<div class="row" style="margin-top: 12px;"><button class="btn" type="button" id="pushBtn">Push（加入 A 晋升演示）</button></div>`
+                : ""
+            }
+            <div style="margin-top: 16px; font-size: 12px; font-weight: 900;">来源</div>
+            ${sourceList || `<div class="sub" style="margin-top: 10px;">暂无来源卡</div>`}
+          `;
+        }
+
+        function bindDrawerActions(card, session) {
+          const $btn = document.getElementById("pushBtn");
+          if (!$btn) return;
+          $btn.addEventListener("click", async () => {
+            const pushes = getPushes();
+            pushes.push({
+              insight_id: card.insight_id,
+              actor_tag: session.user_tag,
+              action: "push",
+              timestamp: new Date().toISOString(),
+              id: "push_" + Date.now(),
+            });
+            setPushes(pushes);
+            closeDrawer();
+            await runAnalyze();
+          });
+        }
+
+        renderStrategyEditor();
+        runAnalyze();
+      }
+
+      const session = getSession();
+      if (session) {
+        renderWork();
+      } else {
+        renderLogin();
+      }
+    </script>
+  </body>
+</html>
