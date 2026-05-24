@@ -25,7 +25,7 @@ try:
 
     if "reddit_explain" in tool_names:
         explain = client.call_tool("reddit_explain", {"term": "karma"})
-        print("reddit_explain smoke:", str(explain)[:240])
+        print("reddit_explain smoke:", str(explain))
 
     results = provider._search_with_client(
         client,
@@ -38,10 +38,14 @@ finally:
 
 print(f"\nFound {len(results)} results:")
 for result in results:
-    print(f"  [{result.source_name}] {result.title[:80]}")
-    print(f"    URL: {result.url[:100]}")
+    print(f"  [{result.source_name}] {result.title}")
+    print(f"    URL: {result.url}")
     print(f"    Published: {result.published_at}")
-    print(f"    Snippet: {result.snippet[:160]}...")
+    print(f"    Snippet: {result.snippet}")
+    # Print all fields of the result
+    for attr in vars(result):
+        if attr not in ("source_name", "title", "url", "published_at", "snippet"):
+            print(f"    {attr}: {getattr(result, attr)}")
     print()
 
 if not results:

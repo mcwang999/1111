@@ -73,6 +73,7 @@ def main():
     for i, card in enumerate(report.social_signal_cards, 1):
         signal_name = card.get("signal_name") or card.get("topic_name", "?")
         signal_type = card.get("signal_type", "?")
+        impact_tags = SocialMediaAgent._impact_tags_for_signal(card)
         sentiment = card.get("sentiment", "?")
         summary = card.get("summary", "")[:200]
         post_count = card.get("post_count", 0)
@@ -87,7 +88,7 @@ def main():
         print(f"  │ signal_type: {signal_type}")
         print(f"  │ sentiment:   {sentiment}")
         print(f"  │ ✅ topic:    social")
-        print(f"  │ ✅ tags:     [{signal_type}]")
+        print(f"  │ ✅ impact_tags: {impact_tags}")
         print(f"  │ post_count:  {post_count}")
         print(f"  │ regions:     {regions}")
         print(f"  │ verticals:   {verticals}")
@@ -119,7 +120,7 @@ def main():
             {
                 "signal_name": s.get("signal_name") or s.get("topic_name"),
                 "topic": "social",
-                "tags": [s.get("signal_type")],
+                "impact_tags": SocialMediaAgent._impact_tags_for_signal(s),
                 "signal_type": s.get("signal_type"),
                 "sentiment": s.get("sentiment"),
             }

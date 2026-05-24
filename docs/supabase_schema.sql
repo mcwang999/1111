@@ -23,6 +23,28 @@ create index if not exists documents_created_at_idx
 create index if not exists documents_metadata_gin_idx
   on documents using gin (metadata);
 
+create unique index if not exists documents_raw_source_url_unique
+  on documents ((metadata->>'normalized_source_url'))
+  where doc_type = 'raw_source'
+    and metadata ? 'normalized_source_url';
+
+create unique index if not exists documents_card_dedup_key_unique
+  on documents ((metadata->>'dedup_key'))
+  where doc_type in ('intel_card', 'social_signal_card')
+    and metadata ? 'dedup_key';
+
+create index if not exists documents_briefing_status_idx
+  on documents ((metadata->>'briefing_status'))
+  where doc_type in ('intel_card', 'social_signal_card');
+
+create index if not exists documents_published_at_idx
+  on documents ((metadata->>'published_at'))
+  where doc_type in ('intel_card', 'social_signal_card', 'raw_source');
+
+create index if not exists documents_last_seen_at_idx
+  on documents ((metadata->>'last_seen_at'))
+  where doc_type in ('intel_card', 'social_signal_card');
+
 create index if not exists documents_embedding_idx
   on documents using ivfflat (embedding vector_cosine_ops)
   with (lists = 100);

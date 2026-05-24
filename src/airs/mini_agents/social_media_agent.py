@@ -5,7 +5,8 @@ then uses LLM to produce structured social signal cards.
 
 Each signal card has:
   - topic: "social" (fixed)
-  - tags: multi-select from [trend, purchase_intent, pain_point, brand_sentiment, occasion, pricing_value]
+  - impact_tags: multi-select business impact tags shared with regional collectors
+  - signal_type: social-specific signal category
 
 Pipeline:
     1. Multi-query search across X and Reddit
@@ -33,6 +34,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from uuid import uuid4
 
 from airs.mini_agents.base_collector import (
@@ -57,6 +59,15 @@ DEFAULT_REGION_QUERIES: dict[str, list[str]] = {
         "gold price jewellery demand",
         "jewellery brand competition",
     ],
+}
+
+SOCIAL_SIGNAL_IMPACT_TAGS: dict[str, list[str]] = {
+    "trend": ["consumer_demand"],
+    "purchase_intent": ["consumer_demand"],
+    "pain_point": ["brand_reputation"],
+    "brand_sentiment": ["brand_reputation"],
+    "occasion": ["consumer_demand"],
+    "pricing_value": ["pricing", "consumer_demand"],
 }
 
 ANALYSIS_PROMPT = """\
@@ -574,6 +585,8 @@ class SocialMediaAgent:
             return False
 
         docs: list[dict[str, Any]] = []
+        collected_at = SupabaseWriter.now_iso()
+        source_dates = self._source_published_at_range(candidates)
 
         # One intel_card for the overall report
         report_id = str(uuid4())
@@ -592,6 +605,10 @@ class SocialMediaAgent:
                 "total_posts_analysed": report.total_posts_analysed,
                 "social_signal_count": len(report.social_signal_cards),
                 "trending_hashtags": report.trending_hashtags[:10],
+                "published_at": source_dates["end"],
+                "source_published_at_range": source_dates,
+                "first_seen_at": collected_at,
+                "last_seen_at": collected_at,
                 "type": "social_media_report",
             },
         })
@@ -605,6 +622,15 @@ class SocialMediaAgent:
                 {self._platform_from_source(c.source_name) for c in candidates}
             )
             signal_type = topic.get("signal_type", "trend")
+            impact_tags = self._impact_tags_for_signal(topic)
+            signal_dates = self._source_published_at_range(
+                [
+                    candidate
+                    for candidate in candidates
+                    if candidate.url in set(evidence_urls)
+                ]
+                or candidates
+            )
             docs.append({
                 "id": str(uuid4()),
                 "doc_type": "social_signal_card",
@@ -615,7 +641,8 @@ class SocialMediaAgent:
                 "metadata": {
                     "agent": "social_media_agent",
                     "topic": "social",
-                    "tags": [signal_type],
+                    "impact_tags": impact_tags,
+                    "dedup_key": self._signal_dedup_key(topic),
                     "focus": focus,
                     "regions": topic.get("regions", []),
                     "verticals": topic.get("verticals", []),
@@ -627,6 +654,13 @@ class SocialMediaAgent:
                     "key_quotes": topic.get("key_quotes", [])[:3],
                     "platforms": platforms,
                     "evidence_urls": evidence_urls,
+                    "published_at": signal_dates["end"],
+                    "source_published_at_range": signal_dates,
+                    "first_seen_at": collected_at,
+                    "last_seen_at": collected_at,
+                    "briefing_status": "new",
+                    "briefed_at": None,
+                    "briefing_ids": [],
                     "type": "social_signal_card",
                     "report_id": report_id,
                 },
@@ -643,16 +677,115 @@ class SocialMediaAgent:
                 "created_by_agent": "social_media_agent",
                 "metadata": {
                     "agent": "social_media_agent",
+                    "normalized_source_url": self._normalize_url(c.url),
                     "source_name": c.source_name,
-                    "published_at": c.published_at,
+                    "published_at": self._normalize_published_at(c.published_at),
+                    "raw_published_at": c.published_at,
+                    "first_seen_at": collected_at,
+                    "last_seen_at": collected_at,
                     "type": "social_media_post",
                 },
             })
 
         try:
-            self.supabase_writer.write_documents(docs)
+            self.supabase_writer.write_documents_with_dedup(docs)
             print(f"[SocialMediaAgent] Persisted {len(docs)} documents to Supabase")
             return True
         except Exception as exc:
             print(f"[SocialMediaAgent] Supabase write failed: {exc}")
             return False
+
+    @staticmethod
+    def _impact_tags_for_signal(topic: dict[str, Any]) -> list[str]:
+        signal_type = topic.get("signal_type", "trend")
+        tags: list[str] = []
+
+        def add(tag: str) -> None:
+            if tag not in tags:
+                tags.append(tag)
+
+        for tag in SOCIAL_SIGNAL_IMPACT_TAGS.get(signal_type, ["consumer_demand"]):
+            add(tag)
+
+        candidate = SearchCandidate(
+            title=str(topic.get("signal_name") or topic.get("topic_name") or ""),
+            url="",
+            snippet=" ".join(
+                [
+                    str(topic.get("summary", "")),
+                    str(topic.get("business_implication", "")),
+                ]
+            ),
+            source_name="social_signal",
+        )
+        for tag in OpenAILLMCurator.infer_impact_tags(candidate, topic="social"):
+            add(tag)
+
+        return tags[:3]
+
+    @classmethod
+    def _signal_dedup_key(cls, topic: dict[str, Any]) -> str:
+        signal_type = topic.get("signal_type", "trend")
+        verticals = "-".join(sorted(str(v) for v in topic.get("verticals", []))) or "unknown"
+        regions = "-".join(sorted(str(r).lower() for r in topic.get("regions", []))) or "global"
+        signal_name = str(topic.get("signal_name") or topic.get("topic_name") or "unknown")
+        return "|".join(
+            [
+                "social_signal_card",
+                signal_type,
+                cls._slug(verticals),
+                cls._slug(regions),
+                cls._slug(signal_name),
+            ]
+        )
+
+    @staticmethod
+    def _slug(text: str) -> str:
+        value = re.sub(r"[^a-z0-9_]+", "-", text.lower()).strip("-")
+        return value[:120] or "unknown"
+
+    @staticmethod
+    def _normalize_url(url: str) -> str:
+        parts = urlsplit(url.strip())
+        query_pairs = []
+        for key, value in parse_qsl(parts.query, keep_blank_values=True):
+            if key in {"fbclid", "gclid", "mc_cid", "mc_eid"} or key.startswith("utm_"):
+                continue
+            query_pairs.append((key, value))
+        return urlunsplit(
+            (
+                parts.scheme.lower(),
+                parts.netloc.lower(),
+                parts.path.rstrip("/") or parts.path,
+                urlencode(query_pairs),
+                "",
+            )
+        )
+
+    @staticmethod
+    def _normalize_published_at(value: str | None) -> str | None:
+        if not value:
+            return None
+        parsed = SupabaseWriter.parse_datetime(value)
+        if parsed is not None:
+            return parsed.date().isoformat()
+        return value
+
+    @classmethod
+    def _source_published_at_range(
+        cls,
+        candidates: list[SearchCandidate],
+    ) -> dict[str, str | None]:
+        dates = [
+            normalized
+            for normalized in (cls._normalize_published_at(candidate.published_at) for candidate in candidates)
+            if normalized
+        ]
+        if not dates:
+            return {"start": None, "end": None}
+        start = dates[0]
+        end = dates[0]
+        for value in dates[1:]:
+            start = SupabaseWriter.earlier_date(start, value) or start
+            end = SupabaseWriter.later_date(end, value) or end
+        return {"start": start, "end": end}

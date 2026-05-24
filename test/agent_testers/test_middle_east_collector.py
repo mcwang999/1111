@@ -4,7 +4,6 @@ import httpx
 
 from airs.mini_agents.base_collector import (
     CollectionRequest,
-    LLMCurator,
     OpenAILLMCurator,
     SearchCandidate,
     StaticSearchProvider,
@@ -109,6 +108,22 @@ def test_middle_east_collector_collects_and_deduplicates_events():
     assert card["metadata"]["topic_source"] == "llm_selected"
     assert card["metadata"]["vertical_source"] == "llm_selected"
     assert card["metadata"]["impact_tags"] == ["brand_reputation", "retail_operations"]
+    assert card["metadata"]["dedup_key"].startswith(
+        "intel_card|middle_east|competition|overseas_retail_channels|"
+    )
+    assert card["metadata"]["published_at"] == "2026-05-20"
+    assert card["metadata"]["source_published_at_range"] == {
+        "start": "2026-05-20",
+        "end": "2026-05-21",
+    }
+    assert card["metadata"]["briefing_status"] == "new"
+    assert card["metadata"]["briefed_at"] is None
+    assert card["metadata"]["briefing_ids"] == []
+    assert "first_seen_at" in card["metadata"]
+    assert "last_seen_at" in card["metadata"]
+    assert result["raw_sources"][0]["metadata"]["normalized_source_url"] == (
+        "https://example.com/story?id=1"
+    )
 
 
 def test_middle_east_collector_changes_queries_by_topic():
@@ -357,6 +372,78 @@ def test_openai_curator_filters_unknown_impact_tags():
     assert decisions[0].impact_tags == ["compliance", "supply_chain"]
 
 
+def test_openai_curator_infers_impact_tags_when_llm_omits_them():
+    curator = make_curator(
+        [
+            {
+                "candidate_index": 0,
+                "keep": True,
+                "reason": "Gold price movement affects retail pricing.",
+                "event_key": "Dubai gold price volatility",
+                "topic": "product",
+                "impact_tags": [],
+                "strategic_vertical": "gold_jewellery",
+                "relevance_score": 0.8,
+            }
+        ]
+    )
+
+    decisions = curator.curate(
+        prompt="You are the Middle East collector mini-agent.",
+        candidates=[
+            SearchCandidate(
+                title="Dubai gold jewellery retailers adjust prices after gold price rally",
+                url="https://example.com/dubai-gold-price",
+                snippet="Retailers are changing gold jewellery pricing as gold prices rise.",
+                source_name="Example",
+            )
+        ],
+        request=CollectionRequest(
+            topic="product",
+            strategic_vertical="gold_jewellery",
+            query_focus="gold price",
+        ),
+    )
+
+    assert decisions[0].impact_tags == ["pricing", "gold_price"]
+
+
+def test_openai_curator_infers_impact_tags_when_llm_returns_null():
+    curator = make_curator(
+        [
+            {
+                "candidate_index": 0,
+                "keep": True,
+                "reason": "Gold price movement affects retail pricing.",
+                "event_key": "Dubai gold price volatility",
+                "topic": "product",
+                "impact_tags": None,
+                "strategic_vertical": "gold_jewellery",
+                "relevance_score": 0.8,
+            }
+        ]
+    )
+
+    decisions = curator.curate(
+        prompt="You are the Middle East collector mini-agent.",
+        candidates=[
+            SearchCandidate(
+                title="Dubai gold jewellery retailers adjust prices after gold price rally",
+                url="https://example.com/dubai-gold-price",
+                snippet="Retailers are changing gold jewellery pricing as gold prices rise.",
+                source_name="Example",
+            )
+        ],
+        request=CollectionRequest(
+            topic="product",
+            strategic_vertical="gold_jewellery",
+            query_focus="gold price",
+        ),
+    )
+
+    assert decisions[0].impact_tags == ["pricing", "gold_price"]
+
+
 def test_load_tavily_config():
     config = load_tavily_config("D:/ai_hackthon/AIRS/.config.yaml")
     assert "api_key" in config
@@ -399,9 +486,80 @@ def test_supabase_writer_write_documents():
             "metadata": {"region": "middle_east"},
         },
     ]
-    result = writer.write_documents(docs)
+    writer.write_documents(docs)
     assert len(posted_payloads) == 1
     assert posted_payloads[0][0]["doc_type"] == "raw_source"
+
+
+def test_supabase_writer_updates_existing_card_by_dedup_key():
+    requests: list[tuple[str, str, object | None]] = []
+
+    existing = {
+        "id": "00000000-0000-0000-0000-000000000010",
+        "doc_type": "intel_card",
+        "title": "Existing card",
+        "content": "Existing content",
+        "source_url": "https://example.com/old",
+        "created_by_agent": "middle_east_collector",
+        "metadata": {
+            "dedup_key": "intel_card|middle_east|competition|retail|pandora-dubai",
+            "first_seen_at": "2026-05-23T00:00:00Z",
+            "last_seen_at": "2026-05-23T00:00:00Z",
+            "briefing_status": "new",
+            "primary_source_id": "src-old",
+            "supporting_source_ids": [],
+            "source_count": 1,
+            "confidence_score": 0.6,
+        },
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode("utf-8")) if request.content else None
+        requests.append((request.method, str(request.url), body))
+        if request.method == "GET":
+            return httpx.Response(200, json=[existing])
+        if request.method == "PATCH":
+            return httpx.Response(200, json=[{**existing, **body}])
+        raise AssertionError(f"Unexpected request: {request.method} {request.url}")
+
+    writer = SupabaseWriter(
+        url="https://example.supabase.co",
+        service_role_key="test-key",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    result = writer.write_documents_with_dedup(
+        [
+            {
+                "id": "00000000-0000-0000-0000-000000000011",
+                "doc_type": "intel_card",
+                "title": "New duplicate card",
+                "content": "New content",
+                "source_url": "https://example.com/new",
+                "created_by_agent": "middle_east_collector",
+                "metadata": {
+                    "dedup_key": "intel_card|middle_east|competition|retail|pandora-dubai",
+                    "first_seen_at": "2026-05-24T00:00:00Z",
+                    "last_seen_at": "2026-05-24T00:00:00Z",
+                    "primary_source_id": "src-new-primary",
+                    "supporting_source_ids": ["src-new-support"],
+                    "source_count": 2,
+                    "confidence_score": 0.75,
+                },
+            }
+        ]
+    )
+
+    methods = [method for method, _, _ in requests]
+    assert methods == ["GET", "PATCH"]
+    patched_metadata = requests[1][2]["metadata"]
+    assert result[0]["id"] == existing["id"]
+    assert patched_metadata["first_seen_at"] == "2026-05-23T00:00:00Z"
+    assert patched_metadata["last_seen_at"] == "2026-05-24T00:00:00Z"
+    assert patched_metadata["primary_source_id"] == "src-old"
+    assert patched_metadata["supporting_source_ids"] == ["src-new-primary", "src-new-support"]
+    assert patched_metadata["source_count"] == 3
+    assert patched_metadata["confidence_score"] == 0.75
 
 
 def test_supabase_writer_write_agent_run():
@@ -420,7 +578,7 @@ def test_supabase_writer_write_agent_run():
         http_client=client,
     )
 
-    result = writer.write_agent_run(
+    writer.write_agent_run(
         agent_name="middle_east_collector",
         tool_name="tavily_search",
         input_payload={"topic": "competition"},
@@ -469,6 +627,8 @@ def test_collector_with_supabase_writer_persists():
 
     def handler(request: httpx.Request) -> httpx.Response:
         posted_urls.append(str(request.url))
+        if request.method == "GET":
+            return httpx.Response(200, json=[])
         body = json.loads(request.content.decode("utf-8"))
         return httpx.Response(201, json=body if isinstance(body, list) else [body])
 

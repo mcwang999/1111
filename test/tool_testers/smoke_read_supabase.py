@@ -5,6 +5,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 from airs.mini_agents.base_collector import SupabaseWriter, load_supabase_config
 
 cfg = load_supabase_config()
@@ -21,16 +25,28 @@ for c in cards:
     meta = c["metadata"]
     dtype = c["doc_type"]
     print(f"  [{c['id'][:8]}...] ({dtype}) {c['title'][:100]}")
-    print(f"    topic: {meta.get('topic', '?')}  tags: {meta.get('tags', [])}")
+    if dtype == "social_signal_card":
+        print(f"    topic: {meta.get('topic', '?')}  signal_type: {meta.get('signal_type', '?')}")
+    else:
+        print(f"    topic: {meta.get('topic', '?')}  impact_tags: {meta.get('impact_tags', [])}")
     print(f"    vertical: {meta.get('strategic_vertical') or meta.get('verticals', '?')}")
+    print(f"    published_at: {meta.get('published_at')}  range: {meta.get('source_published_at_range')}")
+    print(
+        f"    first_seen: {meta.get('first_seen_at')}  "
+        f"last_seen: {meta.get('last_seen_at')}  "
+        f"briefing_status: {meta.get('briefing_status')}"
+    )
     if dtype == "intel_card":
         print(f"    region: {meta.get('region')}  importance: {meta.get('importance_score')}  confidence: {meta.get('confidence_score')}")
         print(f"    sources: {meta.get('source_count')}  event_key: {meta.get('event_key')}")
+        print(f"    dedup_key: {meta.get('dedup_key')}")
         print(f"    topic_source: {meta.get('topic_source')}  vertical_source: {meta.get('vertical_source')}")
         print(f"    dedup_method: {meta.get('dedup_method')}  canonical_event_key: {meta.get('canonical_event_key')}")
         print(f"    primary_source_id: {meta.get('primary_source_id')}")
     if dtype == "social_signal_card":
         print(f"    signal_type: {meta.get('signal_type', '?')}  sentiment: {meta.get('sentiment', '?')}")
+        print(f"    impact_tags: {meta.get('impact_tags', [])}")
+        print(f"    dedup_key: {meta.get('dedup_key')}")
         print(f"    platforms: {meta.get('platforms', [])}  regions: {meta.get('regions', [])}")
         print(f"    business_implication: {meta.get('business_implication', '?')[:100]}")
     print(f"    created_by: {c.get('created_by_agent', 'N/A')}  created: {c['created_at']}")

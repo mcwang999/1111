@@ -11,7 +11,9 @@ import re
 import json
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from difflib import SequenceMatcher
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -135,14 +137,14 @@ class OpenAILLMCurator:
         model: str,
         base_url: str = "https://api.openai.com/v1",
         http_client: Any | None = None,
-        max_retries: int = 3,
+        max_retries: int = 5,
     ) -> None:
         import httpx
 
         self.api_key = api_key
         self.model = model
         self.base_url = base_url.rstrip("/")
-        self.http_client = http_client or httpx.Client(timeout=120)
+        self.http_client = http_client or httpx.Client(timeout=180)
         self.max_retries = max_retries
 
     @classmethod
@@ -194,7 +196,7 @@ class OpenAILLMCurator:
                 last_exc = exc
                 print(f"[OpenAILLMCurator] request failed (attempt {attempt}/{self.max_retries}): {exc}")
                 if attempt < self.max_retries:
-                    delay = 2 ** attempt  # exponential backoff: 2, 4, 8, ...
+                    delay = min(60, 10 * 2 ** (attempt - 1))  # 10, 20, 40, 60, 60s
                     print(f"[OpenAILLMCurator] retrying in {delay}s...")
                     time.sleep(delay)
                 continue
@@ -206,7 +208,7 @@ class OpenAILLMCurator:
                     f"(attempt {attempt}/{self.max_retries}): {last_response_text}"
                 )
                 if attempt < self.max_retries:
-                    delay = 2 ** attempt
+                    delay = min(60, 10 * 2 ** (attempt - 1))
                     print(f"[OpenAILLMCurator] retrying in {delay}s...")
                     time.sleep(delay)
                 continue
@@ -254,10 +256,10 @@ class OpenAILLMCurator:
                 event_key=None,
                 relevance_score=0.5,
                 topic=None,
-                impact_tags=[],
+                impact_tags=self.infer_impact_tags(candidate),
                 strategic_vertical=None,
             )
-            for i in range(len(candidates))
+            for i, candidate in enumerate(candidates)
         ]
 
     def build_user_message(
@@ -332,16 +334,17 @@ class OpenAILLMCurator:
             relevance_score = float(item.get("relevance_score", 0.0))
             topic = item.get("topic")
             strategic_vertical = item.get("strategic_vertical")
-            impact_tags = [
-                tag
-                for tag in item.get("impact_tags", [])
-                if tag in ALLOWED_IMPACT_TAGS
-            ]
+            raw_impact_tags = item.get("impact_tags") or []
+            if not isinstance(raw_impact_tags, list):
+                raw_impact_tags = []
+            impact_tags = [tag for tag in raw_impact_tags if tag in ALLOWED_IMPACT_TAGS]
             # Map unknown topic/vertical to "other" instead of discarding
             if topic not in ALLOWED_TOPICS:
                 topic = "other"
             if strategic_vertical not in ALLOWED_STRATEGIC_VERTICALS:
                 strategic_vertical = "other"
+            if keep and not impact_tags:
+                impact_tags = self.infer_impact_tags(candidates[index], topic=topic)
             reason = str(item.get("reason", ""))
             decisions.append(
                 CuratedCandidate(
@@ -368,6 +371,58 @@ class OpenAILLMCurator:
                     )
                 )
         return decisions
+
+    @staticmethod
+    def infer_impact_tags(candidate: SearchCandidate, topic: str | None = None) -> list[str]:
+        """Infer conservative business impact tags when LLM output is unavailable."""
+        text = f"{candidate.title} {candidate.snippet}".lower()
+        inferred: list[str] = []
+
+        def add(tag: str) -> None:
+            if tag in ALLOWED_IMPACT_TAGS and tag not in inferred:
+                inferred.append(tag)
+
+        if any(term in text for term in ("gold price", "gold prices", "bullion", "xau", "spot gold")):
+            add("pricing")
+            add("gold_price")
+        if any(term in text for term in ("price", "pricing", "discount", "affordability", "margin")):
+            add("pricing")
+        if any(term in text for term in ("cost", "tariff", "duty", "tax", "inflation", "margin")):
+            add("cost")
+        if any(term in text for term in ("demand", "consumer", "shopper", "traffic", "conversion")):
+            add("consumer_demand")
+        if (
+            re.search(r"\b(store|flagship|boutique|mall|ecommerce)\b", text)
+            or "retail expansion" in text
+            or "retail channel" in text
+        ):
+            add("retail_operations")
+        if any(term in text for term in ("inventory", "stock", "replenishment", "allocation")):
+            add("inventory")
+        if any(term in text for term in ("shipping", "freight", "port", "customs", "delivery", "logistics")):
+            add("logistics")
+        if any(term in text for term in ("supplier", "sourcing", "origin", "mining", "refinery", "traceability")):
+            add("sourcing")
+        if any(term in text for term in ("supply chain", "manufacturing", "factory", "production")):
+            add("supply_chain")
+        if any(term in text for term in ("regulation", "policy", "compliance", "certification", "labeling")):
+            add("compliance")
+        if re.search(r"\b(brand|reputation|sentiment|trust|pr)\b", text):
+            add("brand_reputation")
+
+        if inferred:
+            return inferred[:3]
+        if topic == "regulation":
+            return ["compliance"]
+        if topic == "channel":
+            return ["retail_operations"]
+        if topic == "social":
+            return ["consumer_demand"]
+        if topic == "product":
+            return ["consumer_demand"]
+        if topic == "competition":
+            return ["brand_reputation"]
+        return []
 
 
 # ---------------------------------------------------------------------------
@@ -495,6 +550,200 @@ class SupabaseWriter:
             )
         return response.json()
 
+    def write_documents_with_dedup(self, docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Insert or update documents using metadata dedup keys when available."""
+        written: list[dict[str, Any]] = []
+        for doc in docs:
+            existing = self.find_existing_document(doc)
+            if existing is None:
+                written.extend(self.write_documents([doc]))
+                continue
+
+            patch = self.merge_duplicate_document(existing, doc)
+            updated = self.update_document(existing["id"], patch)
+            written.extend(updated)
+        return written
+
+    def find_existing_document(self, doc: dict[str, Any]) -> dict[str, Any] | None:
+        metadata = doc.get("metadata") or {}
+        doc_type = doc.get("doc_type")
+        key = None
+        value = None
+        if doc_type == "raw_source":
+            key = "normalized_source_url"
+            value = metadata.get(key)
+        elif doc_type in {"intel_card", "social_signal_card"}:
+            key = "dedup_key"
+            value = metadata.get(key)
+
+        if not key or not value:
+            return None
+
+        response = self.http_client.get(
+            f"{self.url}/rest/v1/documents",
+            headers=self._headers(),
+            params={
+                "select": "*",
+                "doc_type": f"eq.{doc_type}",
+                f"metadata->>{key}": f"eq.{value}",
+                "limit": "1",
+            },
+        )
+        if response.status_code >= 400:
+            raise RuntimeError(
+                f"Supabase find_existing_document failed: "
+                f"{response.status_code} {response.text[:500]}"
+            )
+        rows = response.json()
+        return rows[0] if rows else None
+
+    def update_document(
+        self,
+        document_id: str,
+        patch: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        cleaned = {k: v for k, v in patch.items() if v is not None}
+        response = self.http_client.patch(
+            f"{self.url}/rest/v1/documents",
+            headers=self._headers(),
+            params={"id": f"eq.{document_id}"},
+            json=cleaned,
+        )
+        if response.status_code >= 400:
+            raise RuntimeError(
+                f"Supabase update_document failed: "
+                f"{response.status_code} {response.text[:500]}"
+            )
+        return response.json()
+
+    @classmethod
+    def merge_duplicate_document(
+        cls,
+        existing: dict[str, Any],
+        incoming: dict[str, Any],
+    ) -> dict[str, Any]:
+        existing_meta = existing.get("metadata") or {}
+        incoming_meta = incoming.get("metadata") or {}
+        metadata = {**existing_meta, **incoming_meta}
+
+        if existing_meta.get("first_seen_at"):
+            metadata["first_seen_at"] = existing_meta["first_seen_at"]
+        metadata["last_seen_at"] = incoming_meta.get("last_seen_at") or cls.now_iso()
+        metadata["briefing_status"] = existing_meta.get(
+            "briefing_status",
+            incoming_meta.get("briefing_status", "new"),
+        )
+        metadata["briefed_at"] = existing_meta.get("briefed_at", incoming_meta.get("briefed_at"))
+        metadata["briefing_ids"] = cls.unique_list(
+            (existing_meta.get("briefing_ids") or [])
+            + (incoming_meta.get("briefing_ids") or [])
+        )
+
+        metadata["published_at"] = cls.earlier_date(
+            existing_meta.get("published_at"),
+            incoming_meta.get("published_at"),
+        )
+        metadata["source_published_at_range"] = cls.merge_date_ranges(
+            existing_meta.get("source_published_at_range"),
+            incoming_meta.get("source_published_at_range"),
+        )
+
+        if incoming.get("doc_type") in {"intel_card", "social_signal_card"}:
+            primary_source_id = existing_meta.get("primary_source_id") or incoming_meta.get(
+                "primary_source_id"
+            )
+            source_ids = cls.unique_list(
+                [
+                    existing_meta.get("primary_source_id"),
+                    *(existing_meta.get("supporting_source_ids") or []),
+                    incoming_meta.get("primary_source_id"),
+                    *(incoming_meta.get("supporting_source_ids") or []),
+                ]
+            )
+            if primary_source_id:
+                metadata["primary_source_id"] = primary_source_id
+                metadata["supporting_source_ids"] = [
+                    source_id for source_id in source_ids if source_id != primary_source_id
+                ]
+                metadata["source_count"] = len(source_ids)
+
+        for score_key in ("confidence_score", "importance_score"):
+            scores = [
+                value
+                for value in (existing_meta.get(score_key), incoming_meta.get(score_key))
+                if isinstance(value, (int, float))
+            ]
+            if scores:
+                metadata[score_key] = max(scores)
+
+        return {
+            "title": existing.get("title") or incoming.get("title"),
+            "content": existing.get("content") or incoming.get("content"),
+            "source_url": existing.get("source_url") or incoming.get("source_url"),
+            "metadata": metadata,
+        }
+
+    @staticmethod
+    def now_iso() -> str:
+        return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+    @staticmethod
+    def unique_list(values: list[Any]) -> list[Any]:
+        unique: list[Any] = []
+        for value in values:
+            if value and value not in unique:
+                unique.append(value)
+        return unique
+
+    @classmethod
+    def earlier_date(cls, left: str | None, right: str | None) -> str | None:
+        if not left:
+            return right
+        if not right:
+            return left
+        left_dt = cls.parse_datetime(left)
+        right_dt = cls.parse_datetime(right)
+        if left_dt and right_dt:
+            return left if left_dt <= right_dt else right
+        return min(left, right)
+
+    @classmethod
+    def merge_date_ranges(
+        cls,
+        left: dict[str, str | None] | None,
+        right: dict[str, str | None] | None,
+    ) -> dict[str, str | None]:
+        starts = [value for value in ((left or {}).get("start"), (right or {}).get("start")) if value]
+        ends = [value for value in ((left or {}).get("end"), (right or {}).get("end")) if value]
+        return {
+            "start": cls.earlier_date(starts[0], starts[1]) if len(starts) == 2 else (starts[0] if starts else None),
+            "end": cls.later_date(ends[0], ends[1]) if len(ends) == 2 else (ends[0] if ends else None),
+        }
+
+    @classmethod
+    def later_date(cls, left: str | None, right: str | None) -> str | None:
+        if not left:
+            return right
+        if not right:
+            return left
+        left_dt = cls.parse_datetime(left)
+        right_dt = cls.parse_datetime(right)
+        if left_dt and right_dt:
+            return left if left_dt >= right_dt else right
+        return max(left, right)
+
+    @staticmethod
+    def parse_datetime(value: str) -> datetime | None:
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        except ValueError:
+            try:
+                parsed = parsedate_to_datetime(value)
+                return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+            except (TypeError, ValueError):
+                return None
+
     def write_agent_run(
         self,
         agent_name: str,
@@ -546,32 +795,41 @@ def load_llm_config(config_path: str | Path = ".config.yaml") -> dict[str, str]:
     config = parse_simple_yaml(config_path)
     llm = config.get("llm", {})
     openai = config.get("openai", {})
+    vercel = config.get("vercel", {})
     opencode_go = config.get("opencode-go", {})
     if not isinstance(llm, dict):
         llm = {}
     if not isinstance(openai, dict):
         openai = {}
+    if not isinstance(vercel, dict):
+        vercel = {}
     if not isinstance(opencode_go, dict):
         opencode_go = {}
+    base_url = str(
+        llm.get("base_url")
+        or vercel.get("base_url")
+        or openai.get("base_url")
+        or opencode_go.get("base_url")
+        or config.get("llm_base_url")
+        or config.get("openai_base_url")
+        or "https://api.openai.com/v1"
+    )
+    if base_url.rstrip("/") == "https://api.vercel.com":
+        base_url = "https://ai-gateway.vercel.sh/v1"
     return {
         "api_key": str(
             llm.get("api_key")
+            or vercel.get("api_key")
             or openai.get("api_key")
             or opencode_go.get("api_key")
             or config.get("llm_api_key")
             or config.get("openai_api_key")
             or ""
         ),
-        "base_url": str(
-            llm.get("base_url")
-            or openai.get("base_url")
-            or opencode_go.get("base_url")
-            or config.get("llm_base_url")
-            or config.get("openai_base_url")
-            or "https://api.openai.com/v1"
-        ),
+        "base_url": base_url,
         "model": str(
             llm.get("model")
+            or vercel.get("model")
             or openai.get("model")
             or opencode_go.get("model")
             or config.get("llm_model")
@@ -673,6 +931,7 @@ class BaseCollector:
         self.supabase_writer = supabase_writer
 
     def collect(self, request: CollectionRequest) -> dict[str, Any]:
+        collected_at = SupabaseWriter.now_iso()
         queries = self.build_queries(request)
 
         all_candidates: list[SearchCandidate] = []
@@ -745,11 +1004,13 @@ class BaseCollector:
         for event_key, cluster in clusters.items():
             cluster_source_ids: list[str] = []
             impact_tags = self.merge_impact_tags(cluster)
+            source_dates = self.source_published_at_range([candidate for candidate, _ in cluster])
             for candidate, decision in cluster:
                 source_id = self.new_doc_id()
                 cluster_source_ids.append(source_id)
                 topic = decision.topic or request.topic
                 strategic_vertical = decision.strategic_vertical or request.strategic_vertical
+                normalized_published_at = self.normalize_published_at(candidate.published_at)
                 raw_sources.append(
                     {
                         "id": source_id,
@@ -770,8 +1031,12 @@ class BaseCollector:
                                 if decision.strategic_vertical
                                 else "request_fallback"
                             ),
+                            "normalized_source_url": self.normalize_url(candidate.url),
                             "source_name": candidate.source_name,
-                            "published_at": candidate.published_at,
+                            "published_at": normalized_published_at,
+                            "raw_published_at": candidate.published_at,
+                            "first_seen_at": collected_at,
+                            "last_seen_at": collected_at,
                             "evidence_quality": "snippet_only",
                             "llm_keep_reason": decision.reason,
                             "llm_relevance_score": decision.relevance_score,
@@ -783,6 +1048,12 @@ class BaseCollector:
             primary_decision = cluster[0][1]
             topic = primary_decision.topic or request.topic
             strategic_vertical = primary_decision.strategic_vertical or request.strategic_vertical
+            card_dedup_key = self.card_dedup_key(
+                doc_type="intel_card",
+                topic=topic,
+                strategic_vertical=strategic_vertical,
+                event_key=event_key,
+            )
             intel_cards.append(
                 {
                     "id": self.new_doc_id(),
@@ -805,6 +1076,14 @@ class BaseCollector:
                             if primary_decision.strategic_vertical
                             else "request_fallback"
                         ),
+                        "dedup_key": card_dedup_key,
+                        "published_at": source_dates["start"],
+                        "source_published_at_range": source_dates,
+                        "first_seen_at": collected_at,
+                        "last_seen_at": collected_at,
+                        "briefing_status": "new",
+                        "briefed_at": None,
+                        "briefing_ids": [],
                         "canonical_event_key": self.canonical_event_key(primary),
                         "primary_source_id": cluster_source_ids[0],
                         "supporting_source_ids": cluster_source_ids[1:],
@@ -822,7 +1101,7 @@ class BaseCollector:
             all_docs = raw_sources + intel_cards
             if all_docs:
                 try:
-                    self.supabase_writer.write_documents(all_docs)
+                    self.supabase_writer.write_documents_with_dedup(all_docs)
                     persisted = True
                 except Exception as exc:
                     print(f"[{self.AGENT_NAME}] Supabase write_documents failed: {exc}")
@@ -1049,3 +1328,53 @@ class BaseCollector:
 
     def new_doc_id(self) -> str:
         return str(uuid4())
+
+    def card_dedup_key(
+        self,
+        doc_type: str,
+        topic: str,
+        strategic_vertical: str,
+        event_key: str,
+    ) -> str:
+        return "|".join(
+            [
+                doc_type,
+                self.REGION,
+                topic,
+                strategic_vertical,
+                self.slug(event_key),
+            ]
+        )
+
+    @staticmethod
+    def slug(text: str) -> str:
+        value = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+        return value[:120] or "unknown"
+
+    @classmethod
+    def normalize_published_at(cls, value: str | None) -> str | None:
+        if not value:
+            return None
+        parsed = SupabaseWriter.parse_datetime(value)
+        if parsed is not None:
+            return parsed.date().isoformat()
+        return value
+
+    @classmethod
+    def source_published_at_range(
+        cls,
+        candidates: list[SearchCandidate],
+    ) -> dict[str, str | None]:
+        dates = [
+            normalized
+            for normalized in (cls.normalize_published_at(candidate.published_at) for candidate in candidates)
+            if normalized
+        ]
+        if not dates:
+            return {"start": None, "end": None}
+        start = dates[0]
+        end = dates[0]
+        for value in dates[1:]:
+            start = SupabaseWriter.earlier_date(start, value) or start
+            end = SupabaseWriter.later_date(end, value) or end
+        return {"start": start, "end": end}
