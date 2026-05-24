@@ -5,7 +5,8 @@ import { getSupabaseClient } from "@/lib/supabase";
  * GET /api/documents
  *
  * Query params: doc_type, region, topic, strategic_vertical, impact_tags,
- *               created_by_agent, page, limit, sort, dir
+ *               created_by_agent, briefing_status, signal_type,
+ *               published_from, published_to, page, limit, sort, dir
  */
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -15,10 +16,18 @@ export async function GET(request: NextRequest) {
 
   // -- filters --
   const docType = searchParams.get("doc_type");
-  if (docType) query = query.eq("doc_type", docType);
+  if (docType === "cards") {
+    query = query.in("doc_type", ["intel_card", "social_signal_card"]);
+  } else if (docType) {
+    query = query.eq("doc_type", docType);
+  }
 
   const region = searchParams.get("region");
-  if (region) query = query.filter("metadata->>region", "eq", region);
+  if (region) {
+    query = query.or(
+      `metadata->>region.eq.${region},metadata->regions.cs.${JSON.stringify([region])}`,
+    );
+  }
 
   const topic = searchParams.get("topic");
   if (topic) query = query.filter("metadata->>topic", "eq", topic);
@@ -28,6 +37,18 @@ export async function GET(request: NextRequest) {
 
   const agent = searchParams.get("created_by_agent");
   if (agent) query = query.eq("created_by_agent", agent);
+
+  const briefingStatus = searchParams.get("briefing_status");
+  if (briefingStatus) query = query.filter("metadata->>briefing_status", "eq", briefingStatus);
+
+  const signalType = searchParams.get("signal_type");
+  if (signalType) query = query.filter("metadata->>signal_type", "eq", signalType);
+
+  const publishedFrom = searchParams.get("published_from");
+  if (publishedFrom) query = query.gte("metadata->>published_at", publishedFrom);
+
+  const publishedTo = searchParams.get("published_to");
+  if (publishedTo) query = query.lte("metadata->>published_at", publishedTo);
 
   const tags = searchParams.get("impact_tags");
   if (tags) {
@@ -47,6 +68,8 @@ export async function GET(request: NextRequest) {
     created_at: "created_at",
     title: "title",
     published_at: "metadata->>published_at",
+    last_seen_at: "metadata->>last_seen_at",
+    importance_score: "metadata->>importance_score",
     relevance_score: "metadata->>relevance_score",
     confidence_score: "metadata->>confidence_score",
   };

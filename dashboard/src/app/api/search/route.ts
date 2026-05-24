@@ -18,7 +18,11 @@ export async function GET(request: NextRequest) {
   let query = supabase.from("documents").select("*", { count: "exact" });
 
   const docType = searchParams.get("doc_type");
-  if (docType) query = query.eq("doc_type", docType);
+  if (docType === "cards") {
+    query = query.in("doc_type", ["intel_card", "social_signal_card"]);
+  } else if (docType) {
+    query = query.eq("doc_type", docType);
+  }
 
   // Search in title OR content
   query = query.or(`title.ilike.%${q}%,content.ilike.%${q}%`);
